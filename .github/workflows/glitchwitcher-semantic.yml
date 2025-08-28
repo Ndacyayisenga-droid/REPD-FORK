@@ -238,7 +238,6 @@ jobs:
         run: |
           set -e
           echo "Running GlitchWitcher semantic analysis on ${{ steps.parse-command.outputs.pr_link }}..."
-          cd repd-repo
           
           # Get PR details using GitHub API
           pr_api_url="https://api.github.com/repos/${{ steps.parse-command.outputs.repo_owner }}/${{ steps.parse-command.outputs.repo_name }}/pulls/${{ steps.parse-command.outputs.pr_number }}"
