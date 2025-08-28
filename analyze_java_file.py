@@ -185,6 +185,7 @@ if __name__ == "__main__":
                               'cbo', 'ca', 'ce', 'ic', 'cbm', 'lcom', 'lcom3', 'dit', 'noc', 'mfa',
                               'npm', 'dam', 'moa', 'cam', 'amc', 'bug']
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()  # Write the header first
                 writer.writerow(metrics)
             print("Metrics extracted successfully")
             sys.exit(0)
