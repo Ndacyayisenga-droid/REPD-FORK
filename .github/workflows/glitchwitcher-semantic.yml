@@ -358,10 +358,30 @@ jobs:
           echo 'def predict_semantic(csv_file, model_dir):' >> compare_semantic_predictions.py
           echo '    # Load dataset' >> compare_semantic_predictions.py
           echo '    df = pd.read_csv(csv_file)' >> compare_semantic_predictions.py
-          echo '    # Load model and scaler' >> compare_semantic_predictions.py
-          echo '    repd_model = joblib.load(f"{model_dir}/repd_model_DA.pkl")' >> compare_semantic_predictions.py
-          echo '    scaler = joblib.load(f"{model_dir}/scaler.pkl")' >> compare_semantic_predictions.py
-          echo '    training_results = joblib.load(f"{model_dir}/training_results.pkl")' >> compare_semantic_predictions.py
+          echo '    # Load model and scaler with error handling' >> compare_semantic_predictions.py
+          echo '    try:' >> compare_semantic_predictions.py
+          echo '        repd_model = joblib.load(f"{model_dir}/repd_model_DA.pkl")' >> compare_semantic_predictions.py
+          echo '        scaler = joblib.load(f"{model_dir}/scaler.pkl")' >> compare_semantic_predictions.py
+          echo '        training_results = joblib.load(f"{model_dir}/training_results.pkl")' >> compare_semantic_predictions.py
+          echo '    except ModuleNotFoundError as e:' >> compare_semantic_predictions.py
+          echo '        print(f"Model loading error: {e}")' >> compare_semantic_predictions.py
+          echo '        print("Attempting to retrain model...")' >> compare_semantic_predictions.py
+          echo '        # Retrain the model' >> compare_semantic_predictions.py
+          echo '        from sklearn.preprocessing import StandardScaler' >> compare_semantic_predictions.py
+          echo '        dataset_path = "data/openj9_metrics.csv"' >> compare_semantic_predictions.py
+          echo '        df_train = pd.read_csv(dataset_path)' >> compare_semantic_predictions.py
+          echo '        feature_columns = ["wmc", "rfc", "loc", "max_cc", "avg_cc", "cbo", "ca", "ce", "ic", "cbm", "lcom", "lcom3", "dit", "noc", "mfa", "npm", "dam", "moa", "cam", "amc"]' >> compare_semantic_predictions.py
+          echo '        X_train = df_train[feature_columns].fillna(0).values' >> compare_semantic_predictions.py
+          echo '        y_train = df_train["bug"].values' >> compare_semantic_predictions.py
+          echo '        scaler = StandardScaler()' >> compare_semantic_predictions.py
+          echo '        X_train_scaled = scaler.fit_transform(X_train)' >> compare_semantic_predictions.py
+          echo '        input_dim = X_train_scaled.shape[1]' >> compare_semantic_predictions.py
+          echo '        layers = [input_dim, max(50, input_dim//2), max(25, input_dim//4), max(10, input_dim//8)]' >> compare_semantic_predictions.py
+          echo '        autoencoder = AutoEncoder(layers, lr=0.01, epoch=50, batch_size=32)' >> compare_semantic_predictions.py
+          echo '        autoencoder.fit(X_train_scaled, print_progress=False)' >> compare_semantic_predictions.py
+          echo '        repd_model = REPD(autoencoder)' >> compare_semantic_predictions.py
+          echo '        repd_model.fit(X_train_scaled, y_train)' >> compare_semantic_predictions.py
+          echo '        training_results = {"feature_columns": feature_columns}' >> compare_semantic_predictions.py
           echo '    # Prepare features' >> compare_semantic_predictions.py
           echo '    feature_columns = training_results["feature_columns"]' >> compare_semantic_predictions.py
           echo '    X = df[feature_columns].fillna(0).values' >> compare_semantic_predictions.py
