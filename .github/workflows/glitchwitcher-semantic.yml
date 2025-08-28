@@ -275,11 +275,15 @@ jobs:
             fpath="target_repo/$file"
             if [ -f "$fpath" ]; then
               echo "Processing $file (base)..."
-              # Use the separate Java analysis script
-              python3 analyze_java_file.py "$fpath" "${{ steps.parse-command.outputs.repo_name }}" "unknown" "target_repo"
-              if [ -f "temp_metrics.csv" ]; then
-                tail -n +2 "temp_metrics.csv" >> metrics_output_base/summary_metrics.csv
-                rm "temp_metrics.csv"
+              # Use the separate Java analysis script with error handling
+              if python3 analyze_java_file.py "$fpath" "${{ steps.parse-command.outputs.repo_name }}" "unknown" "target_repo"; then
+                if [ -f "temp_metrics.csv" ]; then
+                  tail -n +2 "temp_metrics.csv" >> metrics_output_base/summary_metrics.csv
+                  rm "temp_metrics.csv"
+                  echo "✅ Successfully processed $file"
+                fi
+              else
+                echo "⚠️ Failed to process $file, continuing with next file..."
               fi
             else
               echo "Warning: File not found at $fpath (base)."
@@ -295,11 +299,15 @@ jobs:
             fpath="target_repo/$file"
             if [ -f "$fpath" ]; then
               echo "Processing $file (head)..."
-              # Use the separate Java analysis script
-              python3 analyze_java_file.py "$fpath" "${{ steps.parse-command.outputs.repo_name }}" "unknown" "target_repo"
-              if [ -f "temp_metrics.csv" ]; then
-                tail -n +2 "temp_metrics.csv" >> metrics_output_head/summary_metrics.csv
-                rm "temp_metrics.csv"
+              # Use the separate Java analysis script with error handling
+              if python3 analyze_java_file.py "$fpath" "${{ steps.parse-command.outputs.repo_name }}" "unknown" "target_repo"; then
+                if [ -f "temp_metrics.csv" ]; then
+                  tail -n +2 "temp_metrics.csv" >> metrics_output_head/summary_metrics.csv
+                  rm "temp_metrics.csv"
+                  echo "✅ Successfully processed $file"
+                fi
+              else
+                echo "⚠️ Failed to process $file, continuing with next file..."
               fi
             else
               echo "Warning: File not found at $fpath (head)."
