@@ -1,0 +1,740 @@
+name: GlitchWitcher - Semantic Bug Prediction Analysis
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  issues: write
+  contents: read
+
+jobs:
+  glitch-witcher-semantic:
+    runs-on: ubuntu-latest
+    if: contains(github.event.comment.body, 'GlitchWitcher-Semantic')
+
+    steps:
+      - name: Parse GlitchWitcher-Semantic Command
+        id: parse-command
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const body = context.payload.comment?.body ?? '';
+            core.info(`Full comment: ${body}`);
+            // Look for an explicit PR link in the comment
+            const linkMatch = body.match(/https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/);
+            let prLink = null;
+            if (linkMatch) {
+              prLink = linkMatch[0];
+              core.info(`PR link provided: ${prLink}`);
+            } else {
+              // Allow "GlitchWitcher-Semantic" alone when the comment is on a PR
+              const hasCmdOnly = /(^|\s)GlitchWitcher-Semantic\s*$/.test(body);
+              if (hasCmdOnly && context.payload.issue?.pull_request) {
+                const { owner, repo } = context.repo;
+                const prNumber = context.issue.number;
+                prLink = `https://github.com/${owner}/${repo}/pull/${prNumber}`;
+                core.info(`Using current PR: ${prLink}`);
+              } else {
+                core.setFailed('ERROR: Invalid GlitchWitcher-Semantic command format or missing PR link');
+                return;
+              }
+            }
+            // Extract repo owner/name/number from the PR link
+            const m = prLink.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)$/);
+            if (!m) {
+              core.setFailed(`ERROR: Could not parse repository info from PR link: ${prLink}`);
+              return;
+            }
+            const [, repoOwner, repoName, prNumber] = m;
+            const fullRepoName = `${repoOwner}-${repoName}`;
+            const repoUrl = `https://github.com/${repoOwner}/${repoName}.git`;
+            core.setOutput('repo_owner', repoOwner);
+            core.setOutput('repo_name', repoName);
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('full_repo_name', fullRepoName);
+            core.setOutput('pr_link', prLink);
+            core.setOutput('repo_url', repoUrl)
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          pip install tensorflow==2.12.0 pandas joblib scipy numpy urllib3 scikit-learn javalang torch keras
+          sudo apt-get update
+          sudo apt-get install -y cloc git openjdk-11-jdk
+
+      - name: Setup Repository
+        run: |
+          echo "Setting up repository for semantic analysis..."
+          # Ensure we're in the right directory
+          pwd
+          ls -la
+
+      - name: Check Dataset Availability
+        id: check-dataset
+        run: |
+          echo "Checking local dataset availability..."
+          dataset_exists="false"
+          model_exists="false"
+          
+          # Check if local dataset CSV exists
+          if [ -f "data/openj9_metrics.csv" ]; then
+            echo "Local dataset CSV found: data/openj9_metrics.csv"
+            dataset_exists="true"
+            dataset_path="data/openj9_metrics.csv"
+          else
+            echo "Local dataset CSV not found, will generate new one"
+            dataset_path=""
+          fi
+          
+          # Check if local model artifacts exist
+          if [ -f "seantic_trained_models/repd_model_DA.pkl" ] && \
+             [ -f "seantic_trained_models/scaler.pkl" ] && \
+             [ -f "seantic_trained_models/training_results.pkl" ]; then
+            echo "Local semantic model artifacts found"
+            model_exists="true"
+            model_path="seantic_trained_models"
+          else
+            echo "Local semantic model artifacts not found, will train new model"
+            model_path=""
+          fi
+          
+          echo "dataset_exists=$dataset_exists" >> $GITHUB_OUTPUT
+          echo "model_exists=$model_exists" >> $GITHUB_OUTPUT
+          echo "dataset_path=$dataset_path" >> $GITHUB_OUTPUT
+          echo "model_path=$model_path" >> $GITHUB_OUTPUT
+
+      - name: Use Local Dataset
+        run: |
+          echo "Using local dataset for semantic analysis..."
+          if [ -f "data/openj9_metrics.csv" ]; then
+            echo "Using existing local dataset: data/openj9_metrics.csv"
+            echo "csv_file_path=data/openj9_metrics.csv" >> $GITHUB_ENV
+          else
+            echo "ERROR: Local dataset not found at data/openj9_metrics.csv"
+            exit 1
+          fi
+
+      - name: Train Model if Missing
+        if: steps.check-dataset.outputs.model_exists == 'false'
+        run: |
+          echo "Training semantic model using local dataset..."
+          # Use local dataset
+          dataset_path="data/openj9_metrics.csv"
+          echo "Using dataset: $dataset_path"
+          
+          # Create training script
+          cat > train_semantic_model.py << 'EOF'
+import pandas as pd
+import numpy as np
+import joblib
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from REPD_Impl import REPD
+from autoencoder_tf2 import AutoEncoder
+import os
+
+def train_semantic_model(dataset_path):
+    # Load dataset
+    df = pd.read_csv(dataset_path)
+    
+    # Prepare features (exclude non-numeric columns and target)
+    feature_columns = ['wmc', 'rfc', 'loc', 'max_cc', 'avg_cc', 'cbo', 'ca', 'ce', 
+                      'ic', 'cbm', 'lcom', 'lcom3', 'dit', 'noc', 'mfa', 'npm', 
+                      'dam', 'moa', 'cam', 'amc']
+    
+    X = df[feature_columns].fillna(0).values
+    y = df['bug'].values
+    
+    # Scale features
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    # Create autoencoder
+    input_dim = X_scaled.shape[1]
+    layers = [input_dim, max(50, input_dim//2), max(25, input_dim//4), max(10, input_dim//8)]
+    autoencoder = AutoEncoder(layers, lr=0.01, epoch=100, batch_size=32)
+    
+    # Train autoencoder
+    autoencoder.fit(X_scaled, print_progress=True)
+    
+    # Create REPD model
+    repd_model = REPD(autoencoder)
+    repd_model.fit(X_scaled, y)
+    
+    # Save models
+    os.makedirs('trained_model', exist_ok=True)
+    joblib.dump(repd_model, 'trained_model/repd_model_DA.pkl')
+    joblib.dump(scaler, 'trained_model/scaler.pkl')
+    
+    # Save training results
+    training_results = {
+        'feature_columns': feature_columns,
+        'input_dim': input_dim,
+        'layers': layers,
+        'dataset_shape': X.shape
+    }
+    joblib.dump(training_results, 'trained_model/training_results.pkl')
+    
+    print("Model training completed successfully")
+    return True
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) != 2:
+        print("Usage: python train_semantic_model.py <dataset_path>")
+        sys.exit(1)
+    
+    success = train_semantic_model(sys.argv[1])
+    if not success:
+        sys.exit(1)
+EOF
+          
+          python3 train_semantic_model.py "$dataset_path"
+          if [ ! -d "trained_model" ]; then
+            echo "ERROR: Failed to generate trained model"
+            exit 1
+          fi
+          echo "Model training completed successfully"
+
+      - name: Prepare Local Models
+        run: |
+          echo "Preparing local models for semantic analysis..."
+          # Create trained_model directory if it doesn't exist
+          mkdir -p trained_model
+          
+          # Copy local models if they exist
+          if [ -f "seantic_trained_models/repd_model_DA.pkl" ]; then
+            echo "Copying local REPD model..."
+            cp seantic_trained_models/repd_model_DA.pkl trained_model/
+          fi
+          
+          if [ -f "seantic_trained_models/scaler.pkl" ]; then
+            echo "Copying local scaler..."
+            cp seantic_trained_models/scaler.pkl trained_model/
+          fi
+          
+          if [ -f "seantic_trained_models/training_results.pkl" ]; then
+            echo "Copying local training results..."
+            cp seantic_trained_models/training_results.pkl trained_model/
+          fi
+          
+          echo "Local models prepared successfully"
+
+      - name: Run Semantic Analysis on Target PR
+        id: analysis
+        run: |
+          set -e
+          echo "Running GlitchWitcher semantic analysis on ${{ steps.parse-command.outputs.pr_link }}..."
+          cd repd-repo
+          
+          # Get PR details using GitHub API
+          pr_api_url="https://api.github.com/repos/${{ steps.parse-command.outputs.repo_owner }}/${{ steps.parse-command.outputs.repo_name }}/pulls/${{ steps.parse-command.outputs.pr_number }}"
+          pr_info=$(curl -s -H "Accept: application/vnd.github.v3+json" "$pr_api_url")
+          # Parse base/head SHAs using Python (more robust than grep)
+          base_sha=$(printf "%s" "$pr_info" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d['base']['sha'])")
+          head_sha=$(printf "%s" "$pr_info" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d['head']['sha'])")
+          echo "Base SHA: $base_sha"
+          echo "Head SHA: $head_sha"
+          
+          # Clone the target repository
+          git clone "${{ steps.parse-command.outputs.repo_url }}" target_repo
+          # Ensure we have the PR head commit (works for forks)
+          git -C target_repo fetch origin "pull/${{ steps.parse-command.outputs.pr_number }}/head:prhead" || true
+          git -C target_repo fetch --all --tags --prune
+          
+          # Get changed files between base..head (Java only)
+          merge_base=$(git -C target_repo merge-base "$base_sha" "$head_sha")
+          echo "Merge base: $merge_base"
+          changed_files=$(git -C target_repo diff --name-only "$merge_base" "$head_sha" | grep -E "\.java$" || true)
+          if [ -z "$changed_files" ]; then
+            echo "No Java files changed in this PR"
+            echo "comment=No Java files found in the PR changes." >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "Changed files:"
+          printf "%s\n" "$changed_files"
+          
+          # Extract semantic features for base commit
+          git -C target_repo checkout "$base_sha"
+          mkdir -p metrics_output_base
+          echo "project_name,version,class_name,wmc,rfc,loc,max_cc,avg_cc,cbo,ca,ce,ic,cbm,lcom,lcom3,dit,noc,mfa,npm,dam,moa,cam,amc,bug" > metrics_output_base/summary_metrics.csv
+          
+          for file in $changed_files; do
+            fpath="target_repo/$file"
+            if [ -f "$fpath" ]; then
+              echo "Processing $file (base)..."
+              # Use the semantic metrics script for each file
+              python3 -c "
+import sys
+sys.path.append('.')
+import javalang
+import os
+import subprocess
+from collections import defaultdict
+import csv
+import re
+
+def get_cyclomatic_complexity(method):
+    complexity = 1
+    for _, node in method.filter(javalang.tree.IfStatement):
+        complexity += 1
+    for _, node in method.filter(javalang.tree.ForStatement):
+        complexity += 1
+    for _, node in method.filter(javalang.tree.WhileStatement):
+        complexity += 1
+    for _, node in method.filter(javalang.tree.DoStatement):
+        complexity += 1
+    for _, node in method.filter(javalang.tree.SwitchStatement):
+        complexity += len([s for s in node.cases if s.statements])
+    for _, node in method.filter(javalang.tree.CatchClause):
+        complexity += 1
+    return complexity
+
+def get_bug_count(file_path, repo_dir):
+    try:
+        relative_path = os.path.relpath(file_path, repo_dir)
+        result = subprocess.run(
+            ['git', '-C', repo_dir, 'log', '--follow', '--', relative_path],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return 0
+        bug_count = len([line for line in result.stdout.splitlines() if re.search(r'\\b(fix|hotfix|bugfix|chore|refactor|test-fix)\\b', line, re.IGNORECASE)])
+        return bug_count
+    except:
+        return 0
+
+def analyze_file(file_path, project_name, version, repo_dir):
+    with open(file_path, 'r', encoding='utf-8') as f:
+        code = f.read()
+    try:
+        tree = javalang.parse.parse(code)
+    except:
+        return None
+
+    for _, class_node in tree.filter(javalang.tree.ClassDeclaration):
+        fully_qualified_name = f\"{tree.package.name}.{class_node.name}\" if tree.package else class_node.name
+
+        metrics = {
+            'project_name': project_name,
+            'version': version,
+            'class_name': fully_qualified_name,
+            'wmc': 0,
+            'rfc': 0,
+            'loc': len(code.splitlines()),
+            'max_cc': 0,
+            'avg_cc': 0,
+            'cbo': 0,
+            'ca': 0,
+            'ce': 0,
+            'ic': 0,
+            'cbm': 0,
+            'lcom': 0,
+            'lcom3': 0,
+            'dit': 0,
+            'noc': 0,
+            'mfa': 0,
+            'npm': 0,
+            'dam': 0,
+            'moa': 0,
+            'cam': 0,
+            'amc': 0,
+            'bug': get_bug_count(file_path, repo_dir)
+        }
+
+        # Methods and complexity
+        methods = class_node.methods
+        metrics['wmc'] = len(methods)
+        cc_values = []
+        method_names = set()
+        for method in methods:
+            cc = get_cyclomatic_complexity(method)
+            cc_values.append(cc)
+            method_names.add(method.name)
+            if isinstance(method, javalang.tree.MethodDeclaration):
+                metrics['npm'] += 1 if method.modifiers and 'public' in method.modifiers else 0
+
+        metrics['max_cc'] = max(cc_values) if cc_values else 0
+        metrics['avg_cc'] = sum(cc_values) / len(cc_values) if cc_values else 0
+        metrics['amc'] = metrics['loc'] / metrics['wmc'] if metrics['wmc'] > 0 else 0
+
+        # Inheritance metrics
+        metrics['dit'] = 1 if class_node.extends else 0
+        metrics['ic'] = metrics['dit']
+
+        # Coupling and cohesion
+        fields = [f for f in class_node.fields if isinstance(f, javalang.tree.FieldDeclaration)]
+        metrics['moa'] = sum(1 for f in fields if f.type and isinstance(f.type, javalang.tree.ReferenceType))
+        total_fields = len(fields)
+        private_fields = sum(1 for f in fields if f.modifiers and ('private' in f.modifiers or 'protected' in f.modifiers))
+        metrics['dam'] = private_fields / total_fields if total_fields > 0 else 0
+
+        # LCOM calculation
+        field_usage = defaultdict(set)
+        for method in methods:
+            for _, node in method.filter(javalang.tree.MemberReference):
+                if node.qualifier in [f.declarators[0].name for f in fields]:
+                    field_usage[method.name].add(node.qualifier)
+        lcom = 0
+        for i, m1 in enumerate(methods):
+            for m2 in methods[i+1:]:
+                if not (field_usage[m1.name] & field_usage[m2.name]):
+                    lcom += 1
+        metrics['lcom'] = lcom
+        metrics['lcom3'] = 2 * lcom / (len(methods) * (len(methods) - 1)) if len(methods) > 1 else 0
+
+        # RFC and CBO
+        called_methods = set()
+        for method in methods:
+            for _, node in method.filter(javalang.tree.MethodInvocation):
+                called_methods.add(node.member)
+        metrics['rfc'] = len(methods) + len(called_methods)
+        metrics['cbo'] = len(called_methods)
+
+        # CBM: Count intra-class method calls
+        intra_class_calls = 0
+        for method in methods:
+            for _, node in method.filter(javalang.tree.MethodInvocation):
+                if node.member in method_names:
+                    intra_class_calls += 1
+        metrics['cbm'] = intra_class_calls
+
+        # CAM: Cohesion among methods (simplified)
+        metrics['cam'] = 0.5  # Default value
+
+        # MFA: Measure of functional abstraction
+        metrics['mfa'] = 0.0  # Default value
+
+        return metrics
+    return None
+
+# Analyze the file
+metrics = analyze_file('$fpath', '${{ steps.parse-command.outputs.repo_name }}', 'unknown', 'target_repo')
+if metrics:
+    with open('metrics_output_base/summary_metrics.csv', 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=list(metrics.keys()))
+        writer.writerow(metrics)
+"
+            else
+              echo "Warning: File not found at $fpath (base)."
+            fi
+          done
+          
+          # Extract semantic features for head commit
+          git -C target_repo checkout "$head_sha"
+          mkdir -p metrics_output_head
+          echo "project_name,version,class_name,wmc,rfc,loc,max_cc,avg_cc,cbo,ca,ce,ic,cbm,lcom,lcom3,dit,noc,mfa,npm,dam,moa,cam,amc,bug" > metrics_output_head/summary_metrics.csv
+          
+          for file in $changed_files; do
+            fpath="target_repo/$file"
+            if [ -f "$fpath" ]; then
+              echo "Processing $file (head)..."
+              # Use the same semantic metrics script for each file
+              python3 -c "
+import sys
+sys.path.append('.')
+import javalang
+import os
+import subprocess
+from collections import defaultdict
+import csv
+import re
+
+def get_cyclomatic_complexity(method):
+    complexity = 1
+    for _, node in method.filter(javalang.tree.IfStatement):
+        complexity += 1
+    for _, node in method.filter(javalang.tree.ForStatement):
+        complexity += 1
+    for _, node in method.filter(javalang.tree.WhileStatement):
+        complexity += 1
+    for _, node in method.filter(javalang.tree.DoStatement):
+        complexity += 1
+    for _, node in method.filter(javalang.tree.SwitchStatement):
+        complexity += len([s for s in node.cases if s.statements])
+    for _, node in method.filter(javalang.tree.CatchClause):
+        complexity += 1
+    return complexity
+
+def get_bug_count(file_path, repo_dir):
+    try:
+        relative_path = os.path.relpath(file_path, repo_dir)
+        result = subprocess.run(
+            ['git', '-C', repo_dir, 'log', '--follow', '--', relative_path],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return 0
+        bug_count = len([line for line in result.stdout.splitlines() if re.search(r'\\b(fix|hotfix|bugfix|chore|refactor|test-fix)\\b', line, re.IGNORECASE)])
+        return bug_count
+    except:
+        return 0
+
+def analyze_file(file_path, project_name, version, repo_dir):
+    with open(file_path, 'r', encoding='utf-8') as f:
+        code = f.read()
+    try:
+        tree = javalang.parse.parse(code)
+    except:
+        return None
+
+    for _, class_node in tree.filter(javalang.tree.ClassDeclaration):
+        fully_qualified_name = f\"{tree.package.name}.{class_node.name}\" if tree.package else class_node.name
+
+        metrics = {
+            'project_name': project_name,
+            'version': version,
+            'class_name': fully_qualified_name,
+            'wmc': 0,
+            'rfc': 0,
+            'loc': len(code.splitlines()),
+            'max_cc': 0,
+            'avg_cc': 0,
+            'cbo': 0,
+            'ca': 0,
+            'ce': 0,
+            'ic': 0,
+            'cbm': 0,
+            'lcom': 0,
+            'lcom3': 0,
+            'dit': 0,
+            'noc': 0,
+            'mfa': 0,
+            'npm': 0,
+            'dam': 0,
+            'moa': 0,
+            'cam': 0,
+            'amc': 0,
+            'bug': get_bug_count(file_path, repo_dir)
+        }
+
+        # Methods and complexity
+        methods = class_node.methods
+        metrics['wmc'] = len(methods)
+        cc_values = []
+        method_names = set()
+        for method in methods:
+            cc = get_cyclomatic_complexity(method)
+            cc_values.append(cc)
+            method_names.add(method.name)
+            if isinstance(method, javalang.tree.MethodDeclaration):
+                metrics['npm'] += 1 if method.modifiers and 'public' in method.modifiers else 0
+
+        metrics['max_cc'] = max(cc_values) if cc_values else 0
+        metrics['avg_cc'] = sum(cc_values) / len(cc_values) if cc_values else 0
+        metrics['amc'] = metrics['loc'] / metrics['wmc'] if metrics['wmc'] > 0 else 0
+
+        # Inheritance metrics
+        metrics['dit'] = 1 if class_node.extends else 0
+        metrics['ic'] = metrics['dit']
+
+        # Coupling and cohesion
+        fields = [f for f in class_node.fields if isinstance(f, javalang.tree.FieldDeclaration)]
+        metrics['moa'] = sum(1 for f in fields if f.type and isinstance(f.type, javalang.tree.ReferenceType))
+        total_fields = len(fields)
+        private_fields = sum(1 for f in fields if f.modifiers and ('private' in f.modifiers or 'protected' in f.modifiers))
+        metrics['dam'] = private_fields / total_fields if total_fields > 0 else 0
+
+        # LCOM calculation
+        field_usage = defaultdict(set)
+        for method in methods:
+            for _, node in method.filter(javalang.tree.MemberReference):
+                if node.qualifier in [f.declarators[0].name for f in fields]:
+                    field_usage[method.name].add(node.qualifier)
+        lcom = 0
+        for i, m1 in enumerate(methods):
+            for m2 in methods[i+1:]:
+                if not (field_usage[m1.name] & field_usage[m2.name]):
+                    lcom += 1
+        metrics['lcom'] = lcom
+        metrics['lcom3'] = 2 * lcom / (len(methods) * (len(methods) - 1)) if len(methods) > 1 else 0
+
+        # RFC and CBO
+        called_methods = set()
+        for method in methods:
+            for _, node in method.filter(javalang.tree.MethodInvocation):
+                called_methods.add(node.member)
+        metrics['rfc'] = len(methods) + len(called_methods)
+        metrics['cbo'] = len(called_methods)
+
+        # CBM: Count intra-class method calls
+        intra_class_calls = 0
+        for method in methods:
+            for _, node in method.filter(javalang.tree.MethodInvocation):
+                if node.member in method_names:
+                    intra_class_calls += 1
+        metrics['cbm'] = intra_class_calls
+
+        # CAM: Cohesion among methods (simplified)
+        metrics['cam'] = 0.5  # Default value
+
+        # MFA: Measure of functional abstraction
+        metrics['mfa'] = 0.0  # Default value
+
+        return metrics
+    return None
+
+# Analyze the file
+metrics = analyze_file('$fpath', '${{ steps.parse-command.outputs.repo_name }}', 'unknown', 'target_repo')
+if metrics:
+    with open('metrics_output_head/summary_metrics.csv', 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=list(metrics.keys()))
+        writer.writerow(metrics)
+"
+            else
+              echo "Warning: File not found at $fpath (head)."
+            fi
+          done
+          
+          echo "=== Row counts ==="
+          echo "Base rows: $(wc -l < metrics_output_base/summary_metrics.csv || echo 0)"
+          echo "Head rows: $(wc -l < metrics_output_head/summary_metrics.csv || echo 0)"
+          
+          # Prepare trained model: Use local models
+          have_model="false"
+          if [ -d "trained_model" ] && [ -f "trained_model/repd_model_DA.pkl" ]; then
+            echo "Using local semantic model artifacts..."
+            have_model="true"
+          else
+            echo "Local models not found, will train new model..."
+          fi
+          
+          if [ "$have_model" != "true" ]; then
+            echo "comment=No semantic model found for predictions." >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Create the comparison script
+          cat > compare_semantic_predictions.py << 'EOF'
+import sys
+import os
+import pandas as pd
+import numpy as np
+import joblib
+from REPD_Impl import REPD
+from autoencoder import AutoEncoder
+
+def predict_semantic(csv_file, model_dir):
+    # Load dataset
+    df = pd.read_csv(csv_file)
+    
+    # Load model and scaler
+    repd_model = joblib.load(f"{model_dir}/repd_model_DA.pkl")
+    scaler = joblib.load(f"{model_dir}/scaler.pkl")
+    training_results = joblib.load(f"{model_dir}/training_results.pkl")
+    
+    # Prepare features
+    feature_columns = training_results['feature_columns']
+    X = df[feature_columns].fillna(0).values
+    X_scaled = scaler.transform(X)
+    
+    # Get predictions
+    predictions = repd_model.predict(X_scaled)
+    
+    # Get probability densities
+    test_errors = repd_model.calculate_reconstruction_error(X_scaled)
+    p_nd = repd_model.get_non_defect_probability(test_errors)
+    p_d = repd_model.get_defect_probability(test_errors)
+    
+    results = []
+    for i, (_, row) in enumerate(df.iterrows()):
+        results.append({
+            'file': row['class_name'],
+            'p_defective': p_d[i],
+            'p_non_defective': p_nd[i]
+        })
+    
+    return results
+
+def format_results_for_comparison(file_names, base_data, head_data):
+    output = []
+    output.append("### 📊 **Semantic Analysis Results**")
+    output.append("")
+    output.append("| File | Base (Non-Defective) | Base (Defective) | Head (Non-Defective) | Head (Defective) | Risk Change |")
+    output.append("|------|---------------------|------------------|---------------------|------------------|-------------|")
+    
+    for i, file_name in enumerate(file_names):
+        if i < len(base_data) and i < len(head_data):
+            base_nd = base_data[i]['p_non_defective']
+            base_d = base_data[i]['p_defective']
+            head_nd = head_data[i]['p_non_defective']
+            head_d = head_data[i]['p_defective']
+            
+            # Determine risk change
+            base_risk = "🟢 Low" if base_nd > base_d else "🔴 High"
+            head_risk = "🟢 Low" if head_nd > head_d else "🔴 High"
+            risk_change = "➡️ Same" if base_risk == head_risk else ("⬆️ Increased" if head_risk == "🔴 High" else "⬇️ Decreased")
+            
+            output.append(f"| {file_name} | {base_nd:.6f} | {base_d:.6f} | {head_nd:.6f} | {head_d:.6f} | {risk_change} |")
+    
+    return "\\n".join(output)
+
+# Run comparison
+base_results = predict_semantic('metrics_output_base/summary_metrics.csv', 'trained_model')
+head_results = predict_semantic('metrics_output_head/summary_metrics.csv', 'trained_model')
+
+file_names = [r['file'] for r in base_results]
+base_data = [{'p_defective': r['p_defective'], 'p_non_defective': r['p_non_defective']} for r in base_results]
+head_data = [{'p_defective': r['p_defective'], 'p_non_defective': r['p_non_defective']} for r in head_results]
+
+comparison_output = format_results_for_comparison(file_names, base_data, head_data)
+print(comparison_output)
+EOF
+          
+          echo "Running semantic comparison predictions..."
+          if [ -f "metrics_output_base/summary_metrics.csv" ] && [ -f "metrics_output_head/summary_metrics.csv" ]; then
+            comparison_result=$(python3 compare_semantic_predictions.py)
+            if [ -n "$comparison_result" ]; then
+              {
+                echo "comment<<EOF"
+                echo "$comparison_result"
+                echo ""
+                echo "### 📋 Semantic Analysis Interpretation:"
+                echo "> This analysis uses **semantic features** extracted from Java AST (Abstract Syntax Tree) including:"
+                echo "> - **WMC (Weighted Methods per Class)**: Complexity of class methods"
+                echo "> - **RFC (Response for Class)**: Number of methods that can be executed"
+                echo "> - **LCOM (Lack of Cohesion of Methods)**: Measure of class cohesion"
+                echo "> - **CBO (Coupling Between Objects)**: Degree of coupling between classes"
+                echo "> - **DIT (Depth of Inheritance Tree)**: Inheritance depth"
+                echo "> - **NOC (Number of Children)**: Number of direct subclasses"
+                echo "> - **CAM (Cohesion Among Methods)**: Method parameter similarity"
+                echo ""
+                echo "> The values shown are **Probability Densities (PDFs)**, not probabilities. Higher values indicate better fit for that category."
+                echo "EOF"
+              } >> $GITHUB_OUTPUT
+            else
+              echo "comment=Semantic comparison prediction produced no output." >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "comment=Missing base or head metrics files for semantic comparison." >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR
+        if: steps.analysis.outputs.comment != ''
+        uses: actions/github-script@v6
+        env:
+          COMMENT_BODY: "${{ steps.analysis.outputs.comment }}"
+          PR_LINK: "${{ steps.parse-command.outputs.pr_link }}"
+          REPO_NAME: "${{ steps.parse-command.outputs.full_repo_name }}"
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const commentBody = `## 🔮 GlitchWitcher Semantic Analysis Results
+            **Target PR:** ${process.env.PR_LINK}
+            **Repository:** ${process.env.REPO_NAME}
+            ${process.env.COMMENT_BODY}
+            *Semantic analysis performed by GlitchWitcher Bot using AST-based features*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: commentBody
+            }); 
