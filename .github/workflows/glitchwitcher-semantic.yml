@@ -434,9 +434,9 @@ jobs:
           echo '            output.append(f"| {file_name} | {base_nd:.6f} | {base_d:.6f} | {head_nd:.6f} | {head_d:.6f} | {risk_change} |")' >> compare_semantic_predictions.py
           echo '    return "\\n".join(output)' >> compare_semantic_predictions.py
           echo '' >> compare_semantic_predictions.py
-            echo '# Run comparison' >> compare_semantic_predictions.py
-  echo 'base_results = predict_semantic("metrics_output_base/summary_metrics.csv", "seantic_trained_models")' >> compare_semantic_predictions.py
-  echo 'head_results = predict_semantic("metrics_output_head/summary_metrics.csv", "seantic_trained_models")' >> compare_semantic_predictions.py
+          echo '# Run comparison' >> compare_semantic_predictions.py
+          echo 'base_results = predict_semantic("metrics_output_base/summary_metrics.csv", "seantic_trained_models")' >> compare_semantic_predictions.py
+          echo 'head_results = predict_semantic("metrics_output_head/summary_metrics.csv", "seantic_trained_models")' >> compare_semantic_predictions.py
           echo 'file_names = [r["file"] for r in base_results]' >> compare_semantic_predictions.py
           echo 'base_data = [{"p_defective": r["p_defective"], "p_non_defective": r["p_non_defective"]} for r in base_results]' >> compare_semantic_predictions.py
           echo 'head_data = [{"p_defective": r["p_defective"], "p_non_defective": r["p_non_defective"]} for r in head_results]' >> compare_semantic_predictions.py
