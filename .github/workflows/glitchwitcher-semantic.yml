@@ -388,10 +388,11 @@ jobs:
           echo '        repd_model = joblib.load(f"{model_dir}/repd_model_DA.pkl")' >> compare_semantic_predictions.py
           echo '        scaler = joblib.load(f"{model_dir}/scaler.pkl")' >> compare_semantic_predictions.py
           echo '        training_results = joblib.load(f"{model_dir}/training_results.pkl")' >> compare_semantic_predictions.py
+          echo '        print("Successfully loaded existing models")' >> compare_semantic_predictions.py
           echo '    except Exception as e:' >> compare_semantic_predictions.py
           echo '        print(f"Model loading error: {e}")' >> compare_semantic_predictions.py
-          echo '        print("Attempting to retrain model...")' >> compare_semantic_predictions.py
-          echo '        # Retrain the model' >> compare_semantic_predictions.py
+          echo '        print("Training new model with available autoencoder...")' >> compare_semantic_predictions.py
+          echo '        # Retrain the model using available autoencoder' >> compare_semantic_predictions.py
           echo '        from sklearn.preprocessing import StandardScaler' >> compare_semantic_predictions.py
           echo '        dataset_path = "data/openj9_metrics.csv"' >> compare_semantic_predictions.py
           echo '        df_train = pd.read_csv(dataset_path)' >> compare_semantic_predictions.py
@@ -407,6 +408,7 @@ jobs:
           echo '        repd_model = REPD(autoencoder)' >> compare_semantic_predictions.py
           echo '        repd_model.fit(X_train_scaled, y_train)' >> compare_semantic_predictions.py
           echo '        training_results = {"feature_columns": feature_columns}' >> compare_semantic_predictions.py
+          echo '        print("Successfully trained new model")' >> compare_semantic_predictions.py
           echo '    # Prepare features' >> compare_semantic_predictions.py
           echo '    feature_columns = training_results["feature_columns"]' >> compare_semantic_predictions.py
           echo '    X = df[feature_columns].fillna(0).values' >> compare_semantic_predictions.py
