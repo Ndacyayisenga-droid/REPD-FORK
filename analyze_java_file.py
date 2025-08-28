@@ -57,7 +57,15 @@ def analyze_file(file_path, project_name, version, repo_dir):
         return None
 
     try:
-        for _, class_node in tree.filter(javalang.tree.ClassDeclaration):
+        # Count classes found
+        classes = list(tree.filter(javalang.tree.ClassDeclaration))
+        if not classes:
+            print(f"No classes found in {file_path}")
+            return None
+        
+        print(f"Found {len(classes)} class(es) in {file_path}")
+        
+        for _, class_node in classes:
             fully_qualified_name = f"{tree.package.name}.{class_node.name}" if tree.package else class_node.name
 
             metrics = {
@@ -150,6 +158,7 @@ def analyze_file(file_path, project_name, version, repo_dir):
             # MFA: Measure of functional abstraction
             metrics['mfa'] = 0.0  # Default value
 
+            print(f"Successfully analyzed class: {fully_qualified_name}")
             return metrics
     except Exception as e:
         print(f"Error analyzing class in {file_path}: {e}")
@@ -170,7 +179,7 @@ if __name__ == "__main__":
     try:
         metrics = analyze_file(file_path, project_name, version, repo_dir)
         if metrics:
-            # Write to CSV
+            # Write to CSV only if we have actual data
             with open('temp_metrics.csv', 'w', newline='') as f:
                 fieldnames = ['project_name', 'version', 'class_name', 'wmc', 'rfc', 'loc', 'max_cc', 'avg_cc',
                               'cbo', 'ca', 'ce', 'ic', 'cbm', 'lcom', 'lcom3', 'dit', 'noc', 'mfa',
@@ -180,7 +189,7 @@ if __name__ == "__main__":
             print("Metrics extracted successfully")
             sys.exit(0)
         else:
-            print("Failed to extract metrics")
+            print("No classes found in file or parsing failed")
             sys.exit(1)
     except Exception as e:
         print(f"Unexpected error processing {file_path}: {e}")
