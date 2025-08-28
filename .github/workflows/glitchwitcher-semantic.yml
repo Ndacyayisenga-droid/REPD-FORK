@@ -278,9 +278,14 @@ jobs:
               # Use the separate Java analysis script with error handling
               if python3 analyze_java_file.py "$fpath" "${{ steps.parse-command.outputs.repo_name }}" "unknown" "target_repo"; then
                 if [ -f "temp_metrics.csv" ]; then
-                  tail -n +2 "temp_metrics.csv" >> metrics_output_base/summary_metrics.csv
+                  # Check if temp_metrics.csv has data (more than just header)
+                  if [ $(wc -l < "temp_metrics.csv") -gt 1 ]; then
+                    tail -n +2 "temp_metrics.csv" >> metrics_output_base/summary_metrics.csv
+                    echo "✅ Successfully processed $file"
+                  else
+                    echo "⚠️ No data in temp_metrics.csv for $file"
+                  fi
                   rm "temp_metrics.csv"
-                  echo "✅ Successfully processed $file"
                 fi
               else
                 echo "⚠️ Failed to process $file, continuing with next file..."
@@ -302,9 +307,14 @@ jobs:
               # Use the separate Java analysis script with error handling
               if python3 analyze_java_file.py "$fpath" "${{ steps.parse-command.outputs.repo_name }}" "unknown" "target_repo"; then
                 if [ -f "temp_metrics.csv" ]; then
-                  tail -n +2 "temp_metrics.csv" >> metrics_output_head/summary_metrics.csv
+                  # Check if temp_metrics.csv has data (more than just header)
+                  if [ $(wc -l < "temp_metrics.csv") -gt 1 ]; then
+                    tail -n +2 "temp_metrics.csv" >> metrics_output_head/summary_metrics.csv
+                    echo "✅ Successfully processed $file"
+                  else
+                    echo "⚠️ No data in temp_metrics.csv for $file"
+                  fi
                   rm "temp_metrics.csv"
-                  echo "✅ Successfully processed $file"
                 fi
               else
                 echo "⚠️ Failed to process $file, continuing with next file..."
@@ -315,8 +325,17 @@ jobs:
           done
           
           echo "=== Row counts ==="
-          echo "Base rows: $(wc -l < metrics_output_base/summary_metrics.csv || echo 0)"
-          echo "Head rows: $(wc -l < metrics_output_head/summary_metrics.csv || echo 0)"
+          base_rows=$(wc -l < metrics_output_base/summary_metrics.csv || echo 0)
+          head_rows=$(wc -l < metrics_output_head/summary_metrics.csv || echo 0)
+          echo "Base rows: $base_rows"
+          echo "Head rows: $head_rows"
+          
+          # Check if we have actual data (more than just headers)
+          if [ "$base_rows" -le 1 ] || [ "$head_rows" -le 1 ]; then
+            echo "⚠️ Insufficient data for analysis (need more than 1 row per file)"
+            echo "comment=Insufficient Java class data extracted for semantic analysis. Only $base_rows base rows and $head_rows head rows found." >> $GITHUB_OUTPUT
+            exit 0
+          fi
           
           # Prepare trained model: Use local models
           have_model="false"
