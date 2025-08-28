@@ -343,20 +343,26 @@ jobs:
             echo "Using local semantic model artifacts..."
             have_model="true"
           else
-            echo "Local models not found, training new model..."
-            # Train a new model using the available dataset
-            dataset_path="data/openj9_metrics.csv"
-            if [ -f "$dataset_path" ]; then
-              echo "Training model with dataset: $dataset_path"
-              python3 train_semantic_model.py "$dataset_path"
-              if [ -d "seantic_trained_models" ] && [ -f "seantic_trained_models/repd_model_DA.pkl" ]; then
-                echo "Model training completed successfully"
-                have_model="true"
-              else
-                echo "Model training failed"
-              fi
+            echo "Local models not found in seantic_trained_models, checking for trained_models..."
+            if [ -d "trained_models" ] && [ -f "trained_models/repd_model_DA.pkl" ]; then
+              echo "Found models in trained_models directory"
+              have_model="true"
             else
-              echo "No dataset available for training"
+              echo "No trained models found, attempting to train new model..."
+              # Train a new model using the available dataset
+              dataset_path="data/openj9_metrics.csv"
+              if [ -f "$dataset_path" ]; then
+                echo "Training model with dataset: $dataset_path"
+                python3 train_repd_model.py
+                if [ -d "trained_models" ] && [ -f "trained_models/repd_model_DA.pkl" ]; then
+                  echo "Model training completed successfully"
+                  have_model="true"
+                else
+                  echo "Model training failed"
+                fi
+              else
+                echo "No dataset available for training"
+              fi
             fi
           fi
           
@@ -382,7 +388,7 @@ jobs:
           echo '        repd_model = joblib.load(f"{model_dir}/repd_model_DA.pkl")' >> compare_semantic_predictions.py
           echo '        scaler = joblib.load(f"{model_dir}/scaler.pkl")' >> compare_semantic_predictions.py
           echo '        training_results = joblib.load(f"{model_dir}/training_results.pkl")' >> compare_semantic_predictions.py
-          echo '    except ModuleNotFoundError as e:' >> compare_semantic_predictions.py
+          echo '    except Exception as e:' >> compare_semantic_predictions.py
           echo '        print(f"Model loading error: {e}")' >> compare_semantic_predictions.py
           echo '        print("Attempting to retrain model...")' >> compare_semantic_predictions.py
           echo '        # Retrain the model' >> compare_semantic_predictions.py
@@ -435,8 +441,10 @@ jobs:
           echo '    return "\\n".join(output)' >> compare_semantic_predictions.py
           echo '' >> compare_semantic_predictions.py
           echo '# Run comparison' >> compare_semantic_predictions.py
-          echo 'base_results = predict_semantic("metrics_output_base/summary_metrics.csv", "seantic_trained_models")' >> compare_semantic_predictions.py
-          echo 'head_results = predict_semantic("metrics_output_head/summary_metrics.csv", "seantic_trained_models")' >> compare_semantic_predictions.py
+          echo '# Determine model directory' >> compare_semantic_predictions.py
+          echo 'model_dir = "seantic_trained_models" if os.path.exists("seantic_trained_models/repd_model_DA.pkl") else "trained_models"' >> compare_semantic_predictions.py
+          echo 'base_results = predict_semantic("metrics_output_base/summary_metrics.csv", model_dir)' >> compare_semantic_predictions.py
+          echo 'head_results = predict_semantic("metrics_output_head/summary_metrics.csv", model_dir)' >> compare_semantic_predictions.py
           echo 'file_names = [r["file"] for r in base_results]' >> compare_semantic_predictions.py
           echo 'base_data = [{"p_defective": r["p_defective"], "p_non_defective": r["p_non_defective"]} for r in base_results]' >> compare_semantic_predictions.py
           echo 'head_data = [{"p_defective": r["p_defective"], "p_non_defective": r["p_non_defective"]} for r in head_results]' >> compare_semantic_predictions.py
