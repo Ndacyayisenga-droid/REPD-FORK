@@ -170,7 +170,7 @@ jobs:
         if: steps.check-dataset.outputs.dataset_exists == 'false'
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
           branch: add-dataset-${{ steps.check-dataset.outputs.repo_name }}
           commit-message: Add semantic dataset for ${{ steps.check-dataset.outputs.repo_name }}
           title: Add semantic dataset for ${{ steps.check-dataset.outputs.repo_name }}
@@ -181,7 +181,6 @@ jobs:
             data/*.csv
             .gitignore
             extract_semantic_dataset.sh
-        id: create-pr
 
       - name: Notify on PR Creation Failure
         if: steps.check-dataset.outputs.dataset_exists == 'false' && steps.create-pr.outputs.pull-request-number == ''
