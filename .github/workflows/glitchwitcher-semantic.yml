@@ -171,7 +171,7 @@ jobs:
           echo '    layers = [input_dim, max(50, input_dim//2), max(25, input_dim//4), max(10, input_dim//8)]' >> train_semantic_model.py
           echo '    autoencoder = AutoEncoder(layers, lr=0.01, epoch=100, batch_size=32)' >> train_semantic_model.py
           echo '    # Train autoencoder' >> train_semantic_model.py
-          echo '    autoencoder.fit(X_scaled, print_progress=True)' >> train_semantic_model.py
+          echo '    autoencoder.fit(X_scaled, print_progress=False)' >> train_semantic_model.py
           echo '    # Create REPD model' >> train_semantic_model.py
           echo '    repd_model = REPD(autoencoder)' >> train_semantic_model.py
           echo '    repd_model.fit(X_scaled, y)' >> train_semantic_model.py
@@ -194,6 +194,7 @@ jobs:
           echo '    if not success:' >> train_semantic_model.py
           echo '        sys.exit(1)' >> train_semantic_model.py
           
+          echo "🤖 Training semantic models..."
           python3 train_semantic_model.py "$dataset_path"
           if [ ! -d "trained_model" ]; then
             echo "ERROR: Failed to generate trained model"
@@ -426,7 +427,40 @@ jobs:
           echo '' >> compare_semantic_predictions.py
           echo 'def format_results_for_comparison(file_names, base_data, head_data):' >> compare_semantic_predictions.py
           echo '    output = []' >> compare_semantic_predictions.py
-          echo '    output.append("## Bug Prediction Analysis")' >> compare_semantic_predictions.py
+          echo '    output.append("### 📊 **Bug Prediction Analysis Results**")' >> compare_semantic_predictions.py
+          echo '    output.append("")' >> compare_semantic_predictions.py
+          echo '    # Create a summary table first' >> compare_semantic_predictions.py
+          echo '    output.append("| File | Outcome | Risk Change |")' >> compare_semantic_predictions.py
+          echo '    output.append("|------|---------|-------------|")' >> compare_semantic_predictions.py
+          echo '    for i, file_name in enumerate(file_names):' >> compare_semantic_predictions.py
+          echo '        if i < len(base_data) and i < len(head_data):' >> compare_semantic_predictions.py
+          echo '            base_defective = base_data[i]["p_defective"]' >> compare_semantic_predictions.py
+          echo '            base_non_defective = base_data[i]["p_non_defective"]' >> compare_semantic_predictions.py
+          echo '            head_defective = head_data[i]["p_defective"]' >> compare_semantic_predictions.py
+          echo '            head_non_defective = head_data[i]["p_non_defective"]' >> compare_semantic_predictions.py
+          echo '            base_outcome = "Defective" if base_defective > base_non_defective else "Non-Defective"' >> compare_semantic_predictions.py
+          echo '            head_outcome = "Defective" if head_defective > head_non_defective else "Non-Defective"' >> compare_semantic_predictions.py
+          echo '            outcome = f"{base_outcome} → {head_outcome}"' >> compare_semantic_predictions.py
+          echo '            # Calculate risk change' >> compare_semantic_predictions.py
+          echo '            if base_defective > 0:' >> compare_semantic_predictions.py
+          echo '                risk_change = ((head_defective - base_defective) / base_defective * 100)' >> compare_semantic_predictions.py
+          echo '                risk_change = max(-99.99, min(999.99, risk_change))' >> compare_semantic_predictions.py
+          echo '            else:' >> compare_semantic_predictions.py
+          echo '                risk_change = 0.0' >> compare_semantic_predictions.py
+          echo '            # Determine risk indicator' >> compare_semantic_predictions.py
+          echo '            if risk_change > 10:' >> compare_semantic_predictions.py
+          echo '                risk_indicator = "🔴 High Risk"' >> compare_semantic_predictions.py
+          echo '            elif risk_change > 0:' >> compare_semantic_predictions.py
+          echo '                risk_indicator = "🟡 Medium Risk"' >> compare_semantic_predictions.py
+          echo '            elif risk_change > -10:' >> compare_semantic_predictions.py
+          echo '                risk_indicator = "🟢 Low Risk"' >> compare_semantic_predictions.py
+          echo '            else:' >> compare_semantic_predictions.py
+          echo '                risk_indicator = "🟢 Risk Reduced"' >> compare_semantic_predictions.py
+          echo '            # Extract just the class name from the full path' >> compare_semantic_predictions.py
+          echo '            class_name = file_name.split(".")[-1] if "." in file_name else file_name' >> compare_semantic_predictions.py
+          echo '            output.append(f"| `{class_name}.java` | `{outcome}` | {risk_indicator} ({risk_change:+.1f}%) |")' >> compare_semantic_predictions.py
+          echo '    output.append("")' >> compare_semantic_predictions.py
+          echo '    output.append("### 📈 **Detailed Metrics**")' >> compare_semantic_predictions.py
           echo '    output.append("")' >> compare_semantic_predictions.py
           echo '    for i, file_name in enumerate(file_names):' >> compare_semantic_predictions.py
           echo '        if i < len(base_data) and i < len(head_data):' >> compare_semantic_predictions.py
@@ -436,12 +470,12 @@ jobs:
           echo '            head_non_defective = head_data[i]["p_non_defective"]' >> compare_semantic_predictions.py
           echo '            base_outcome = "Defective" if base_defective > base_non_defective else "Non-Defective"' >> compare_semantic_predictions.py
           echo '            head_outcome = "Defective" if head_defective > head_non_defective else "Non-Defective"' >> compare_semantic_predictions.py
-          echo '            outcome = f"{base_outcome} -> {head_outcome}"' >> compare_semantic_predictions.py
+          echo '            outcome = f"{base_outcome} → {head_outcome}"' >> compare_semantic_predictions.py
           echo '            # Extract just the class name from the full path' >> compare_semantic_predictions.py
           echo '            class_name = file_name.split(".")[-1] if "." in file_name else file_name' >> compare_semantic_predictions.py
-          echo '            output.append(f"**File: `{class_name}.java`**")' >> compare_semantic_predictions.py
+          echo '            output.append(f"**📄 {class_name}.java**")' >> compare_semantic_predictions.py
           echo '            output.append(f"**Outcome**: `{outcome}`")' >> compare_semantic_predictions.py
-          echo '            output.append("**Metrics Table**:")' >> compare_semantic_predictions.py
+          echo '            output.append("")' >> compare_semantic_predictions.py
           echo '            output.append("| Metric | BEFORE PR | AFTER PR | % Change |")' >> compare_semantic_predictions.py
           echo '            output.append("|--------|-----------|----------|----------|")' >> compare_semantic_predictions.py
           echo '            # Calculate percentage changes with better handling of edge cases' >> compare_semantic_predictions.py
@@ -455,8 +489,8 @@ jobs:
           echo '                pct_change_non_defective = max(-99.99, min(999.99, pct_change_non_defective))  # Limit to reasonable range' >> compare_semantic_predictions.py
           echo '            else:' >> compare_semantic_predictions.py
           echo '                pct_change_non_defective = 0.0' >> compare_semantic_predictions.py
-          echo '            output.append(f"| `PDF(Defective | Reconstruction Error)` | `{base_defective:.6e}` | `{head_defective:.6e}` | `{pct_change_defective:+.2f}%` |")' >> compare_semantic_predictions.py
-          echo '            output.append(f"| `PDF(Non-Defective | Reconstruction Error)` | `{base_non_defective:.6e}` | `{head_non_defective:.6e}` | `{pct_change_non_defective:+.2f}%` |")' >> compare_semantic_predictions.py
+          echo '            output.append(f"| PDF(Defective) | `{base_defective:.6e}` | `{head_defective:.6e}` | `{pct_change_defective:+.2f}%` |")' >> compare_semantic_predictions.py
+          echo '            output.append(f"| PDF(Non-Defective) | `{base_non_defective:.6e}` | `{head_non_defective:.6e}` | `{pct_change_non_defective:+.2f}%` |")' >> compare_semantic_predictions.py
           echo '            output.append("")' >> compare_semantic_predictions.py
           echo '    return "\\n".join(output)' >> compare_semantic_predictions.py
           echo '' >> compare_semantic_predictions.py
@@ -485,15 +519,20 @@ jobs:
           echo 'print(comparison_output)' >> compare_semantic_predictions.py
           
           echo "Running semantic comparison predictions..."
+          echo "🔍 Analyzing semantic features and training models..."
           if [ -f "metrics_output_base/summary_metrics.csv" ] && [ -f "metrics_output_head/summary_metrics.csv" ]; then
             # Run the comparison and save to file to avoid GitHub Actions output limits
             if python3 compare_semantic_predictions.py > semantic_analysis_result.txt 2>/dev/null; then
               # Check if the output file has content
               if [ -s "semantic_analysis_result.txt" ]; then
                 echo "✅ Semantic analysis completed successfully"
-                # Use the same format as traditional workflow
+                # Format the comment with better structure
                 {
                   echo "comment<<EOF"
+                  echo "## 🔮 GlitchWitcher Analysis Results"
+                  echo "**Target PR:** ${{ steps.parse-command.outputs.pr_link }}"
+                  echo "**Repository:** ${{ steps.parse-command.outputs.full_repo_name }}"
+                  echo ""
                   cat semantic_analysis_result.txt
                   echo ""
                   echo "### 📋 Interpretation Note:"
@@ -525,10 +564,8 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const commentBody = `## 🔮 GlitchWitcher Analysis Results
-            **Target PR:** ${process.env.PR_LINK}
-            **Repository:** ${process.env.REPO_NAME}
-            ${process.env.COMMENT_BODY}
+            const commentBody = `${process.env.COMMENT_BODY}
+            
             *Analysis performed by GlitchWitcher Bot*`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
