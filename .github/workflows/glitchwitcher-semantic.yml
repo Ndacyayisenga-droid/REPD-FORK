@@ -459,48 +459,119 @@ jobs:
           echo 'base_data = [{"p_defective": r["p_defective"], "p_non_defective": r["p_non_defective"]} for r in base_results]' >> compare_semantic_predictions.py
           echo 'head_data = [{"p_defective": r["p_defective"], "p_non_defective": r["p_non_defective"]} for r in head_results]' >> compare_semantic_predictions.py
           echo 'comparison_output = format_results_for_comparison(file_names, base_data, head_data)' >> compare_semantic_predictions.py
+          echo '# Limit output length to prevent GitHub Actions output issues' >> compare_semantic_predictions.py
+          echo 'max_length = 10000  # GitHub Actions output limit' >> compare_semantic_predictions.py
+          echo 'if len(comparison_output) > max_length:' >> compare_semantic_predictions.py
+          echo '    lines = comparison_output.split("\\n")' >> compare_semantic_predictions.py
+          echo '    truncated_output = []' >> compare_semantic_predictions.py
+          echo '    current_length = 0' >> compare_semantic_predictions.py
+          echo '    for line in lines:' >> compare_semantic_predictions.py
+          echo '        if current_length + len(line) + 1 > max_length - 100:  # Leave some buffer' >> compare_semantic_predictions.py
+          echo '            truncated_output.append("\\n*... Output truncated due to length limits ...*")' >> compare_semantic_predictions.py
+          echo '            break' >> compare_semantic_predictions.py
+          echo '        truncated_output.append(line)' >> compare_semantic_predictions.py
+          echo '        current_length += len(line) + 1' >> compare_semantic_predictions.py
+          echo '    comparison_output = "\\n".join(truncated_output)' >> compare_semantic_predictions.py
           echo 'print(comparison_output)' >> compare_semantic_predictions.py
           
           echo "Running semantic comparison predictions..."
           if [ -f "metrics_output_base/summary_metrics.csv" ] && [ -f "metrics_output_head/summary_metrics.csv" ]; then
-            comparison_result=$(python3 compare_semantic_predictions.py)
-            if [ -n "$comparison_result" ]; then
-              echo "comment=$comparison_result" >> $GITHUB_OUTPUT
-              echo "" >> $GITHUB_OUTPUT
-              echo "### 📋 Semantic Analysis Interpretation:" >> $GITHUB_OUTPUT
-              echo "> This analysis uses **semantic features** extracted from Java AST (Abstract Syntax Tree) including:" >> $GITHUB_OUTPUT
-              echo "> - **WMC (Weighted Methods per Class)**: Complexity of class methods" >> $GITHUB_OUTPUT
-              echo "> - **RFC (Response for Class)**: Number of methods that can be executed" >> $GITHUB_OUTPUT
-              echo "> - **LCOM (Lack of Cohesion of Methods)**: Measure of class cohesion" >> $GITHUB_OUTPUT
-              echo "> - **CBO (Coupling Between Objects)**: Degree of coupling between classes" >> $GITHUB_OUTPUT
-              echo "> - **DIT (Depth of Inheritance Tree)**: Inheritance depth" >> $GITHUB_OUTPUT
-              echo "> - **NOC (Number of Children)**: Number of direct subclasses" >> $GITHUB_OUTPUT
-              echo "> - **CAM (Cohesion Among Methods)**: Method parameter similarity" >> $GITHUB_OUTPUT
-              echo "" >> $GITHUB_OUTPUT
-              echo "> The values shown are **Probability Densities (PDFs)**, not probabilities. Higher values indicate better fit for that category." >> $GITHUB_OUTPUT
+            # Run the comparison and save to file to avoid GitHub Actions output limits
+            if python3 compare_semantic_predictions.py > semantic_analysis_result.txt 2>&1; then
+              # Check if the output file has content
+              if [ -s "semantic_analysis_result.txt" ]; then
+                echo "✅ Semantic analysis completed successfully"
+                # Set a success flag instead of the full output
+                echo "analysis_success=true" >> $GITHUB_OUTPUT
+                echo "result_file=semantic_analysis_result.txt" >> $GITHUB_OUTPUT
+              else
+                echo "⚠️ Semantic analysis produced no output"
+                echo "analysis_success=false" >> $GITHUB_OUTPUT
+                echo "error_message=Semantic comparison prediction produced no output." >> $GITHUB_OUTPUT
+              fi
             else
-              echo "comment=Semantic comparison prediction produced no output." >> $GITHUB_OUTPUT
+              echo "❌ Error running semantic analysis"
+              cat semantic_analysis_result.txt
+              echo "analysis_success=false" >> $GITHUB_OUTPUT
+              echo "error_message=Error running semantic comparison predictions." >> $GITHUB_OUTPUT
             fi
           else
-            echo "comment=Missing base or head metrics files for semantic comparison." >> $GITHUB_OUTPUT
+            echo "❌ Missing base or head metrics files for semantic comparison"
+            echo "analysis_success=false" >> $GITHUB_OUTPUT
+            echo "error_message=Missing base or head metrics files for semantic comparison." >> $GITHUB_OUTPUT
           fi
 
       - name: Comment on PR
-        if: steps.analysis.outputs.comment != ''
+        if: steps.analysis.outputs.analysis_success == 'true'
         uses: actions/github-script@v6
         env:
-          COMMENT_BODY: "${{ steps.analysis.outputs.comment }}"
           PR_LINK: "${{ steps.parse-command.outputs.pr_link }}"
           REPO_NAME: "${{ steps.parse-command.outputs.full_repo_name }}"
+          RESULT_FILE: "${{ steps.analysis.outputs.result_file }}"
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let analysisResults = '';
+            
+            // Read the analysis results from file
+            try {
+              if (process.env.RESULT_FILE && fs.existsSync(process.env.RESULT_FILE)) {
+                analysisResults = fs.readFileSync(process.env.RESULT_FILE, 'utf8');
+              }
+            } catch (error) {
+              console.log('Error reading result file:', error);
+              analysisResults = 'Error reading analysis results.';
+            }
+            
+            const interpretationSection = `
+            
+            ### 📋 Semantic Analysis Interpretation:
+            > This analysis uses **semantic features** extracted from Java AST (Abstract Syntax Tree) including:
+            > - **WMC (Weighted Methods per Class)**: Complexity of class methods
+            > - **RFC (Response for Class)**: Number of methods that can be executed
+            > - **LCOM (Lack of Cohesion of Methods)**: Measure of class cohesion
+            > - **CBO (Coupling Between Objects)**: Degree of coupling between classes
+            > - **DIT (Depth of Inheritance Tree)**: Inheritance depth
+            > - **NOC (Number of Children)**: Number of direct subclasses
+            > - **CAM (Cohesion Among Methods)**: Method parameter similarity
+            
+            > The values shown are **Probability Densities (PDFs)**, not probabilities. Higher values indicate better fit for that category.`;
+            
+            const commentBody = `## 🔮 GlitchWitcher Semantic Analysis Results
+            **Target PR:** ${process.env.PR_LINK}
+            **Repository:** ${process.env.REPO_NAME}
+            
+            ${analysisResults}${interpretationSection}
+            
+            *Semantic analysis performed by GlitchWitcher Bot using AST-based features*`;
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: commentBody
+            });
+
+      - name: Comment on PR (Error Case)
+        if: steps.analysis.outputs.analysis_success == 'false'
+        uses: actions/github-script@v6
+        env:
+          PR_LINK: "${{ steps.parse-command.outputs.pr_link }}"
+          REPO_NAME: "${{ steps.parse-command.outputs.full_repo_name }}"
+          ERROR_MESSAGE: "${{ steps.analysis.outputs.error_message }}"
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const commentBody = `## 🔮 GlitchWitcher Semantic Analysis Results
             **Target PR:** ${process.env.PR_LINK}
             **Repository:** ${process.env.REPO_NAME}
-            ${process.env.COMMENT_BODY}
-            *Semantic analysis performed by GlitchWitcher Bot using AST-based features*`;
-            github.rest.issues.createComment({
+            
+            ⚠️ **Analysis Error:** ${process.env.ERROR_MESSAGE}
+            
+            *Semantic analysis attempted by GlitchWitcher Bot*`;
+            
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
