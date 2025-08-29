@@ -426,21 +426,28 @@ jobs:
           echo '' >> compare_semantic_predictions.py
           echo 'def format_results_for_comparison(file_names, base_data, head_data):' >> compare_semantic_predictions.py
           echo '    output = []' >> compare_semantic_predictions.py
-          echo '    output.append("## Semantic Analysis Results")' >> compare_semantic_predictions.py
+          echo '    output.append("## Bug Prediction Analysis")' >> compare_semantic_predictions.py
           echo '    output.append("")' >> compare_semantic_predictions.py
-          echo '    output.append("| File | Base Risk | Head Risk | Change |")' >> compare_semantic_predictions.py
-          echo '    output.append("|------|-----------|-----------|--------|")' >> compare_semantic_predictions.py
           echo '    for i, file_name in enumerate(file_names):' >> compare_semantic_predictions.py
           echo '        if i < len(base_data) and i < len(head_data):' >> compare_semantic_predictions.py
-          echo '            base_risk = "High" if base_data[i]["p_defective"] > 0.5 else "Low"' >> compare_semantic_predictions.py
-          echo '            head_risk = "High" if head_data[i]["p_defective"] > 0.5 else "Low"' >> compare_semantic_predictions.py
-          echo '            if base_risk == head_risk:' >> compare_semantic_predictions.py
-          echo '                change = "Same"' >> compare_semantic_predictions.py
-          echo '            elif head_risk == "High":' >> compare_semantic_predictions.py
-          echo '                change = "Increased"' >> compare_semantic_predictions.py
-          echo '            else:' >> compare_semantic_predictions.py
-          echo '                change = "Decreased"' >> compare_semantic_predictions.py
-          echo '            output.append(f"| {file_name} | {base_risk} | {head_risk} | {change} |")' >> compare_semantic_predictions.py
+          echo '            base_defective = base_data[i]["p_defective"]' >> compare_semantic_predictions.py
+          echo '            base_non_defective = base_data[i]["p_non_defective"]' >> compare_semantic_predictions.py
+          echo '            head_defective = head_data[i]["p_defective"]' >> compare_semantic_predictions.py
+          echo '            head_non_defective = head_data[i]["p_non_defective"]' >> compare_semantic_predictions.py
+          echo '            base_outcome = "Defective" if base_defective > base_non_defective else "Non-Defective"' >> compare_semantic_predictions.py
+          echo '            head_outcome = "Defective" if head_defective > head_non_defective else "Non-Defective"' >> compare_semantic_predictions.py
+          echo '            outcome = f"{base_outcome} -> {head_outcome}"' >> compare_semantic_predictions.py
+          echo '            short_name = file_name.split(".")[-1] if "." in file_name else file_name' >> compare_semantic_predictions.py
+          echo '            output.append(f"**File: `{short_name}.java`**")' >> compare_semantic_predictions.py
+          echo '            output.append(f"**Outcome**: `{outcome}`")' >> compare_semantic_predictions.py
+          echo '            output.append("**Metrics Table**:")' >> compare_semantic_predictions.py
+          echo '            output.append("| Metric | BEFORE PR | AFTER PR | % Change |")' >> compare_semantic_predictions.py
+          echo '            output.append("|--------|-----------|----------|----------|")' >> compare_semantic_predictions.py
+          echo '            pct_change_defective = ((head_defective - base_defective) / base_defective * 100) if base_defective != 0 else 0' >> compare_semantic_predictions.py
+          echo '            pct_change_non_defective = ((head_non_defective - base_non_defective) / base_non_defective * 100) if base_non_defective != 0 else 0' >> compare_semantic_predictions.py
+          echo '            output.append(f"| `PDF(Defective | Reconstruction Error)` | `{base_defective:.6e}` | `{head_defective:.6e}` | `{pct_change_defective:+.2f}%` |")' >> compare_semantic_predictions.py
+          echo '            output.append(f"| `PDF(Non-Defective | Reconstruction Error)` | `{base_non_defective:.6e}` | `{head_non_defective:.6e}` | `{pct_change_non_defective:+.2f}%` |")' >> compare_semantic_predictions.py
+          echo '            output.append("")' >> compare_semantic_predictions.py
           echo '    return "\\n".join(output)' >> compare_semantic_predictions.py
           echo '' >> compare_semantic_predictions.py
           echo '# Run comparison' >> compare_semantic_predictions.py
