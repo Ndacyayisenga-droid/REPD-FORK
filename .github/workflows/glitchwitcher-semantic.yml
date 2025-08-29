@@ -428,8 +428,8 @@ jobs:
           echo '    output = []' >> compare_semantic_predictions.py
           echo '    output.append("### 📊 **Semantic Analysis Results**")' >> compare_semantic_predictions.py
           echo '    output.append("")' >> compare_semantic_predictions.py
-          echo '    output.append("| File | Base (Non-Defective) | Base (Defective) | Head (Non-Defective) | Head (Defective) | Risk Change |")' >> compare_semantic_predictions.py
-          echo '    output.append("|------|---------------------|------------------|---------------------|------------------|-------------|")' >> compare_semantic_predictions.py
+          echo '    output.append("| File | Base Risk | Head Risk | Change |")' >> compare_semantic_predictions.py
+          echo '    output.append("|------|-----------|-----------|--------|")' >> compare_semantic_predictions.py
           echo '    for i, file_name in enumerate(file_names):' >> compare_semantic_predictions.py
           echo '        if i < len(base_data) and i < len(head_data):' >> compare_semantic_predictions.py
           echo '            base_nd = base_data[i]["p_non_defective"]' >> compare_semantic_predictions.py
@@ -439,7 +439,9 @@ jobs:
           echo '            base_risk = "🟢 Low" if base_nd > base_d else "🔴 High"' >> compare_semantic_predictions.py
           echo '            head_risk = "🟢 Low" if head_nd > head_d else "🔴 High"' >> compare_semantic_predictions.py
           echo '            risk_change = "➡️ Same" if base_risk == head_risk else ("⬆️ Increased" if head_risk == "🔴 High" else "⬇️ Decreased")' >> compare_semantic_predictions.py
-          echo '            output.append(f"| {file_name} | {base_nd:.6f} | {base_d:.6f} | {head_nd:.6f} | {head_d:.6f} | {risk_change} |")' >> compare_semantic_predictions.py
+          echo '            # Shorten file name for display' >> compare_semantic_predictions.py
+          echo '            short_name = file_name.split(".")[-1] if "." in file_name else file_name' >> compare_semantic_predictions.py
+          echo '            output.append(f"| {short_name} | {base_risk} | {head_risk} | {risk_change} |")' >> compare_semantic_predictions.py
           echo '    return "\\n".join(output)' >> compare_semantic_predictions.py
           echo '' >> compare_semantic_predictions.py
           echo '# Run comparison' >> compare_semantic_predictions.py
