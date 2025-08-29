@@ -426,22 +426,21 @@ jobs:
           echo '' >> compare_semantic_predictions.py
           echo 'def format_results_for_comparison(file_names, base_data, head_data):' >> compare_semantic_predictions.py
           echo '    output = []' >> compare_semantic_predictions.py
-          echo '    output.append("### 📊 **Semantic Analysis Results**")' >> compare_semantic_predictions.py
+          echo '    output.append("## Semantic Analysis Results")' >> compare_semantic_predictions.py
           echo '    output.append("")' >> compare_semantic_predictions.py
           echo '    output.append("| File | Base Risk | Head Risk | Change |")' >> compare_semantic_predictions.py
           echo '    output.append("|------|-----------|-----------|--------|")' >> compare_semantic_predictions.py
           echo '    for i, file_name in enumerate(file_names):' >> compare_semantic_predictions.py
           echo '        if i < len(base_data) and i < len(head_data):' >> compare_semantic_predictions.py
-          echo '            base_nd = base_data[i]["p_non_defective"]' >> compare_semantic_predictions.py
-          echo '            base_d = base_data[i]["p_defective"]' >> compare_semantic_predictions.py
-          echo '            head_nd = head_data[i]["p_non_defective"]' >> compare_semantic_predictions.py
-          echo '            head_d = head_data[i]["p_defective"]' >> compare_semantic_predictions.py
-          echo '            base_risk = "🟢 Low" if base_nd > base_d else "🔴 High"' >> compare_semantic_predictions.py
-          echo '            head_risk = "🟢 Low" if head_nd > head_d else "🔴 High"' >> compare_semantic_predictions.py
-          echo '            risk_change = "➡️ Same" if base_risk == head_risk else ("⬆️ Increased" if head_risk == "🔴 High" else "⬇️ Decreased")' >> compare_semantic_predictions.py
-          echo '            # Shorten file name for display' >> compare_semantic_predictions.py
-          echo '            short_name = file_name.split(".")[-1] if "." in file_name else file_name' >> compare_semantic_predictions.py
-          echo '            output.append(f"| {short_name} | {base_risk} | {head_risk} | {risk_change} |")' >> compare_semantic_predictions.py
+          echo '            base_risk = "High" if base_data[i]["p_defective"] > 0.5 else "Low"' >> compare_semantic_predictions.py
+          echo '            head_risk = "High" if head_data[i]["p_defective"] > 0.5 else "Low"' >> compare_semantic_predictions.py
+          echo '            if base_risk == head_risk:' >> compare_semantic_predictions.py
+          echo '                change = "Same"' >> compare_semantic_predictions.py
+          echo '            elif head_risk == "High":' >> compare_semantic_predictions.py
+          echo '                change = "Increased"' >> compare_semantic_predictions.py
+          echo '            else:' >> compare_semantic_predictions.py
+          echo '                change = "Decreased"' >> compare_semantic_predictions.py
+          echo '            output.append(f"| {file_name} | {base_risk} | {head_risk} | {change} |")' >> compare_semantic_predictions.py
           echo '    return "\\n".join(output)' >> compare_semantic_predictions.py
           echo '' >> compare_semantic_predictions.py
           echo '# Run comparison' >> compare_semantic_predictions.py
