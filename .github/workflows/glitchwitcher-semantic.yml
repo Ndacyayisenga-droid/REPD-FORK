@@ -477,7 +477,7 @@ jobs:
           echo "Running semantic comparison predictions..."
           if [ -f "metrics_output_base/summary_metrics.csv" ] && [ -f "metrics_output_head/summary_metrics.csv" ]; then
             # Run the comparison and save to file to avoid GitHub Actions output limits
-            if python3 compare_semantic_predictions.py > semantic_analysis_result.txt 2>&1; then
+            if python3 compare_semantic_predictions.py > semantic_analysis_result.txt 2>/dev/null; then
               # Check if the output file has content
               if [ -s "semantic_analysis_result.txt" ]; then
                 echo "✅ Semantic analysis completed successfully"
@@ -518,6 +518,27 @@ jobs:
             try {
               if (process.env.RESULT_FILE && fs.existsSync(process.env.RESULT_FILE)) {
                 analysisResults = fs.readFileSync(process.env.RESULT_FILE, 'utf8');
+                // Clean up the results - remove any TensorFlow warnings or debug output
+                const lines = analysisResults.split('\n');
+                const cleanLines = lines.filter(line => 
+                  !line.includes('tensorflow') && 
+                  !line.includes('cuda') && 
+                  !line.includes('Model loading error') &&
+                  !line.includes('Training new model') &&
+                  !line.includes('Successfully trained') &&
+                  !line.includes('RuntimeWarning') &&
+                  !line.includes('TF-TRT Warning') &&
+                  !line.includes('Could not find') &&
+                  !line.includes('This TensorFlow binary') &&
+                  !line.includes('ETA:') &&
+                  !line.includes('step') &&
+                  !line.includes('==============================') &&
+                  !line.includes('scipy/stats') &&
+                  !line.includes('optimize.fsolve') &&
+                  !line.includes('invalid value encountered') &&
+                  !line.includes('The iteration is not making good progress')
+                );
+                analysisResults = cleanLines.join('\n').trim();
               }
             } catch (error) {
               console.log('Error reading result file:', error);
