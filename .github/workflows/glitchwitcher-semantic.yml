@@ -67,20 +67,12 @@ jobs:
           pip install tensorflow==2.12.0 pandas joblib scipy numpy urllib3 scikit-learn javalang torch keras
           sudo apt-get update
           sudo apt-get install -y cloc git openjdk-11-jdk
-          # Install GitHub CLI for creating PRs
-          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y gh
-
-      - name: Authenticate GitHub CLI
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Repository
         run: |
@@ -88,7 +80,7 @@ jobs:
           # Ensure we're in the right directory
           pwd
           ls -la
-          echo "Checking if data file exists:"
+          echo "Checking if data directory exists:"
           ls -la data/ || echo "data directory not found"
           if [ -f "data/openj9_metrics.csv" ]; then
             echo "✅ data/openj9_metrics.csv found!"
@@ -162,29 +154,32 @@ jobs:
           
           echo "Moved dataset to: $target_file"
           echo "csv_file_path=$target_file" >> $GITHUB_ENV
-          
-          # Create a PR for the new dataset
-          echo "Creating PR for new dataset..."
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Create a new branch for the dataset
-          branch_name="add-dataset-${{ steps.check-dataset.outputs.repo_name }}"
-          git checkout -b "$branch_name"
-          
-          # Add the new dataset file
-          git add "$target_file"
-          git commit -m "Add semantic dataset for ${{ steps.check-dataset.outputs.repo_name }}"
-          
-          # Push the branch and create PR
-          git push origin "$branch_name"
-          
-          # Create PR using GitHub CLI or API
-          gh pr create \
-            --title "Add semantic dataset for ${{ steps.check-dataset.outputs.repo_name }}" \
-            --body "This PR adds the semantic dataset generated for ${{ steps.check-dataset.outputs.repo_name }} repository analysis." \
-            --base main \
-            --head "$branch_name"
+
+      - name: Create Pull Request for Dataset
+        if: steps.check-dataset.outputs.dataset_exists == 'false'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: add-dataset-${{ steps.check-dataset.outputs.repo_name }}
+          commit-message: Add semantic dataset for ${{ steps.check-dataset.outputs.repo_name }}
+          title: Add semantic dataset for ${{ steps.check-dataset.outputs.repo_name }}
+          body: This PR adds the semantic dataset generated for ${{ steps.check-dataset.outputs.repo_name }} repository analysis.
+          base: main
+          delete-branch: true
+        id: create-pr
+
+      - name: Notify on PR Creation Failure
+        if: steps.check-dataset.outputs.dataset_exists == 'false' && steps.create-pr.outputs.pull-request-number == ''
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `⚠️ Dataset generated for ${{ steps.check-dataset.outputs.repo_name }} and pushed to branch \`add-dataset-${{ steps.check-dataset.outputs.repo_name }}\`, but automatic PR creation failed. Please create a PR manually at: https://github.com/${{ steps.parse-command.outputs.repo_owner }}/${{ steps.check-dataset.outputs.repo_name }}/compare/main...add-dataset-${{ steps.check-dataset.outputs.repo_name }}`
+            });
 
       - name: Use Local Dataset
         run: |
@@ -264,8 +259,7 @@ jobs:
           
           # Get PR details using GitHub API
           pr_api_url="https://api.github.com/repos/${{ steps.parse-command.outputs.repo_owner }}/${{ steps.parse-command.outputs.repo_name }}/pulls/${{ steps.parse-command.outputs.pr_number }}"
-          pr_info=$(curl -s -H "Accept: application/vnd.github.v3+json" "$pr_api_url")
-          # Parse base/head SHAs using Python (more robust than grep)
+          pr_info=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github.v3+json" "$pr_api_url")
           base_sha=$(printf "%s" "$pr_info" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d['base']['sha'])")
           head_sha=$(printf "%s" "$pr_info" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d['head']['sha'])")
           echo "Base SHA: $base_sha"
