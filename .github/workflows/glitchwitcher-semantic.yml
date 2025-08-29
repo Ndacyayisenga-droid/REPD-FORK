@@ -437,14 +437,24 @@ jobs:
           echo '            base_outcome = "Defective" if base_defective > base_non_defective else "Non-Defective"' >> compare_semantic_predictions.py
           echo '            head_outcome = "Defective" if head_defective > head_non_defective else "Non-Defective"' >> compare_semantic_predictions.py
           echo '            outcome = f"{base_outcome} -> {head_outcome}"' >> compare_semantic_predictions.py
-          echo '            short_name = file_name.split(".")[-1] if "." in file_name else file_name' >> compare_semantic_predictions.py
-          echo '            output.append(f"**File: `{short_name}.java`**")' >> compare_semantic_predictions.py
+          echo '            # Extract just the class name from the full path' >> compare_semantic_predictions.py
+          echo '            class_name = file_name.split(".")[-1] if "." in file_name else file_name' >> compare_semantic_predictions.py
+          echo '            output.append(f"**File: `{class_name}.java`**")' >> compare_semantic_predictions.py
           echo '            output.append(f"**Outcome**: `{outcome}`")' >> compare_semantic_predictions.py
           echo '            output.append("**Metrics Table**:")' >> compare_semantic_predictions.py
           echo '            output.append("| Metric | BEFORE PR | AFTER PR | % Change |")' >> compare_semantic_predictions.py
           echo '            output.append("|--------|-----------|----------|----------|")' >> compare_semantic_predictions.py
-          echo '            pct_change_defective = ((head_defective - base_defective) / base_defective * 100) if base_defective != 0 else 0' >> compare_semantic_predictions.py
-          echo '            pct_change_non_defective = ((head_non_defective - base_non_defective) / base_non_defective * 100) if base_non_defective != 0 else 0' >> compare_semantic_predictions.py
+          echo '            # Calculate percentage changes with better handling of edge cases' >> compare_semantic_predictions.py
+          echo '            if base_defective > 0:' >> compare_semantic_predictions.py
+          echo '                pct_change_defective = ((head_defective - base_defective) / base_defective * 100)' >> compare_semantic_predictions.py
+          echo '                pct_change_defective = max(-99.99, min(999.99, pct_change_defective))  # Limit to reasonable range' >> compare_semantic_predictions.py
+          echo '            else:' >> compare_semantic_predictions.py
+          echo '                pct_change_defective = 0.0' >> compare_semantic_predictions.py
+          echo '            if base_non_defective > 0:' >> compare_semantic_predictions.py
+          echo '                pct_change_non_defective = ((head_non_defective - base_non_defective) / base_non_defective * 100)' >> compare_semantic_predictions.py
+          echo '                pct_change_non_defective = max(-99.99, min(999.99, pct_change_non_defective))  # Limit to reasonable range' >> compare_semantic_predictions.py
+          echo '            else:' >> compare_semantic_predictions.py
+          echo '                pct_change_non_defective = 0.0' >> compare_semantic_predictions.py
           echo '            output.append(f"| `PDF(Defective | Reconstruction Error)` | `{base_defective:.6e}` | `{head_defective:.6e}` | `{pct_change_defective:+.2f}%` |")' >> compare_semantic_predictions.py
           echo '            output.append(f"| `PDF(Non-Defective | Reconstruction Error)` | `{base_non_defective:.6e}` | `{head_non_defective:.6e}` | `{pct_change_non_defective:+.2f}%` |")' >> compare_semantic_predictions.py
           echo '            output.append("")' >> compare_semantic_predictions.py
