@@ -7,7 +7,7 @@ on:
 permissions:
   pull-requests: write
   issues: write
-  contents: read
+  contents: write
 
 jobs:
   glitch-witcher-semantic:
@@ -67,6 +67,15 @@ jobs:
           pip install tensorflow==2.12.0 pandas joblib scipy numpy urllib3 scikit-learn javalang torch keras
           sudo apt-get update
           sudo apt-get install -y cloc git openjdk-11-jdk
+          # Install GitHub CLI for creating PRs
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y gh
+
+      - name: Authenticate GitHub CLI
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
 
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -95,13 +104,16 @@ jobs:
           dataset_exists="false"
           model_exists="false"
           
-          # Check if local dataset CSV exists
-          if [ -f "data/openj9_metrics.csv" ]; then
-            echo "Local dataset CSV found: data/openj9_metrics.csv"
+          # Check if local dataset CSV exists for the target repository
+          repo_name="${{ steps.parse-command.outputs.repo_name }}"
+          dataset_file="data/${repo_name}_metrics.csv"
+          
+          if [ -f "$dataset_file" ]; then
+            echo "Local dataset CSV found: $dataset_file"
             dataset_exists="true"
-            dataset_path="data/openj9_metrics.csv"
+            dataset_path="$dataset_file"
           else
-            echo "Local dataset CSV not found, will generate new one"
+            echo "Local dataset CSV not found for $repo_name, will generate new one"
             dataset_path=""
           fi
           
@@ -121,29 +133,85 @@ jobs:
           echo "model_exists=$model_exists" >> $GITHUB_OUTPUT
           echo "dataset_path=$dataset_path" >> $GITHUB_OUTPUT
           echo "model_path=$model_path" >> $GITHUB_OUTPUT
+          echo "repo_name=$repo_name" >> $GITHUB_OUTPUT
+          echo "dataset_file=$dataset_file" >> $GITHUB_OUTPUT
+
+      - name: Generate Dataset if Missing
+        if: steps.check-dataset.outputs.dataset_exists == 'false'
+        run: |
+          echo "Generating dataset for ${{ steps.check-dataset.outputs.repo_name }}..."
+          echo "Repository URL: ${{ steps.parse-command.outputs.repo_url }}"
+          
+          # Make the script executable and run it
+          chmod +x extract_semantic_dataset.sh
+          ./extract_semantic_dataset.sh "${{ steps.parse-command.outputs.repo_url }}"
+          
+          # Find the generated CSV file
+          generated_csv=$(find . -name "*_metrics.csv" -path "./metrics_output/*" | head -1)
+          if [ ! -f "$generated_csv" ]; then
+            echo "ERROR: Failed to generate CSV file"
+            exit 1
+          fi
+          
+          echo "Generated CSV file: $generated_csv"
+          
+          # Move the generated file to the data directory with the correct name
+          target_file="${{ steps.check-dataset.outputs.dataset_file }}"
+          mkdir -p data
+          mv "$generated_csv" "$target_file"
+          
+          echo "Moved dataset to: $target_file"
+          echo "csv_file_path=$target_file" >> $GITHUB_ENV
+          
+          # Create a PR for the new dataset
+          echo "Creating PR for new dataset..."
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create a new branch for the dataset
+          branch_name="add-dataset-${{ steps.check-dataset.outputs.repo_name }}"
+          git checkout -b "$branch_name"
+          
+          # Add the new dataset file
+          git add "$target_file"
+          git commit -m "Add semantic dataset for ${{ steps.check-dataset.outputs.repo_name }}"
+          
+          # Push the branch and create PR
+          git push origin "$branch_name"
+          
+          # Create PR using GitHub CLI or API
+          gh pr create \
+            --title "Add semantic dataset for ${{ steps.check-dataset.outputs.repo_name }}" \
+            --body "This PR adds the semantic dataset generated for ${{ steps.check-dataset.outputs.repo_name }} repository analysis." \
+            --base main \
+            --head "$branch_name"
 
       - name: Use Local Dataset
         run: |
-          echo "Checking local dataset for semantic analysis..."
-          if [ -f "data/openj9_metrics.csv" ]; then
-            echo "✅ Using existing local dataset: data/openj9_metrics.csv"
-            echo "csv_file_path=data/openj9_metrics.csv" >> $GITHUB_ENV
+          echo "Setting up dataset for semantic analysis..."
+          if [ "${{ steps.check-dataset.outputs.dataset_exists }}" = "true" ]; then
+            echo "✅ Using existing local dataset: ${{ steps.check-dataset.outputs.dataset_path }}"
+            echo "csv_file_path=${{ steps.check-dataset.outputs.dataset_path }}" >> $GITHUB_ENV
+          elif [ -n "${{ env.csv_file_path }}" ]; then
+            echo "✅ Using newly generated dataset: ${{ env.csv_file_path }}"
+            echo "csv_file_path=${{ env.csv_file_path }}" >> $GITHUB_ENV
           else
-            echo "⚠️ Local dataset not found, creating minimal sample dataset..."
+            echo "⚠️ No dataset available, creating minimal sample dataset..."
             # Create minimal sample dataset as fallback
             mkdir -p data
-            echo "project_name,version,class_name,wmc,rfc,loc,max_cc,avg_cc,cbo,ca,ce,ic,cbm,lcom,lcom3,dit,noc,mfa,npm,dam,moa,cam,amc,bug" > data/openj9_metrics.csv
-            echo "openj9,unknown,com.example.TestClass,5,10,68,6,2.8,5,0,0,0,1,10,1.0,0,0,0.0,4,0.6666666666666666,2,0.5,13.6,2" >> data/openj9_metrics.csv
-            echo "Created fallback dataset: data/openj9_metrics.csv"
-            echo "csv_file_path=data/openj9_metrics.csv" >> $GITHUB_ENV
+            fallback_file="${{ steps.check-dataset.outputs.dataset_file }}"
+            echo "project_name,version,class_name,wmc,rfc,loc,max_cc,avg_cc,cbo,ca,ce,ic,cbm,lcom,lcom3,dit,noc,mfa,npm,dam,moa,cam,amc,bug" > "$fallback_file"
+            echo "${{ steps.check-dataset.outputs.repo_name }},unknown,com.example.TestClass,5,10,68,6,2.8,5,0,0,0,1,10,1.0,0,0,0.0,4,0.6666666666666666,2,0.5,13.6,2" >> "$fallback_file"
+            echo "Created fallback dataset: $fallback_file"
+            echo "csv_file_path=$fallback_file" >> $GITHUB_ENV
           fi
 
       - name: Train Model if Missing
         if: steps.check-dataset.outputs.model_exists == 'false'
         run: |
           echo "Training semantic model using local dataset..."
-          # Use local dataset
-          dataset_path="data/openj9_metrics.csv"
+          # Use the dataset path from the previous step
+          dataset_path="${{ env.csv_file_path }}"
           echo "Using dataset: $dataset_path"
           
           # Use the existing train_semantic_model.py file
@@ -305,7 +373,7 @@ jobs:
             else
               echo "No trained models found, attempting to train new model..."
               # Train a new model using the available dataset
-              dataset_path="data/openj9_metrics.csv"
+              dataset_path="${{ env.csv_file_path }}"
               if [ -f "$dataset_path" ]; then
                 echo "Training model with dataset: $dataset_path"
                 python3 train_repd_model.py
