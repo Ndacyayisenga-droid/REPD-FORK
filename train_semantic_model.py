@@ -12,6 +12,11 @@ from REPD_Impl import REPD
 from autoencoder_tf2 import AutoEncoder
 import os
 
+# Suppress TensorFlow progress bars
+import tensorflow as tf
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+tf.get_logger().setLevel('ERROR')
+
 def train_semantic_model(dataset_path):
     """Train semantic model for bug prediction"""
     # Load dataset

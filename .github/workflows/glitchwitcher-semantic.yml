@@ -331,7 +331,7 @@ jobs:
           echo "Running semantic comparison predictions..."
           echo "🔍 Analyzing semantic features and training models..."
           if [ -f "metrics_output_base/summary_metrics.csv" ] && [ -f "metrics_output_head/summary_metrics.csv" ]; then
-            # Run the comparison using the separate Python file
+            # Run the comparison using the separate Python file (redirect stderr to suppress progress bars)
             if python3 compare_semantic_predictions.py > semantic_analysis_result.txt 2>/dev/null; then
               # Check if the output file has content
               if [ -s "semantic_analysis_result.txt" ]; then

@@ -9,6 +9,10 @@ import tensorflow as tf
 import math
 import numpy as np
 
+# Suppress TensorFlow progress bars and logging
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+tf.get_logger().setLevel('ERROR')
+
 class AutoEncoder:
     
     def __init__(self, layers, lr=0.01, epoch=200, batch_size=512, transfer_function=tf.nn.relu, error_func=None, print_device=False):
@@ -101,11 +105,11 @@ class AutoEncoder:
     
     def transform(self, X):
         """Encode the input data"""
-        return self.encoder.predict(X)
+        return self.encoder.predict(X, verbose=0)
     
     def inverse_transform(self, X):
         """Decode the encoded data"""
-        return self.decoder.predict(X)
+        return self.decoder.predict(X, verbose=0)
     
     def fit_transform(self, X):
         """Fit the model and transform the data"""
@@ -144,7 +148,7 @@ def main():
     
     # Create and train autoencoder
     ae = AutoEncoder([20, 18, 14, 8, 4, 2])
-    ae.fit(X, print_progress=True)
+    ae.fit(X, print_progress=False)
     
     # Test transform
     encoded = ae.transform(X)

@@ -11,6 +11,11 @@ import joblib
 from REPD_Impl import REPD
 from autoencoder_tf2 import AutoEncoder
 
+# Suppress TensorFlow progress bars
+import tensorflow as tf
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+tf.get_logger().setLevel('ERROR')
+
 def predict_semantic(csv_file, model_dir):
     """Predict semantic analysis results for a CSV file"""
     # Load dataset
