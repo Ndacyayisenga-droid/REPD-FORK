@@ -223,7 +223,7 @@ jobs:
         if: steps.check-dataset.outputs.dataset_exists == 'false' || steps.check-dataset.outputs.model_exists == 'false'
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
           branch: add-dataset-models-${{ steps.check-dataset.outputs.repo_name }}
           commit-message: Add semantic dataset and trained models for ${{ steps.check-dataset.outputs.repo_name }}
           title: Add semantic dataset and trained models for ${{ steps.check-dataset.outputs.repo_name }}
