@@ -2,9 +2,16 @@ import numpy as np
 from stat_util import get_best_distribution
 import scipy.stats as st
 
+def default_repd_error_function(x):
+    """Default error function for REPD"""
+    return np.linalg.norm(x, ord=2, axis=1)
+
 class REPD:
     
-    def __init__(self,dim_reduction_model,error_func=lambda x: np.linalg.norm(x,ord=2,axis=1)):
+    def __init__(self, dim_reduction_model, error_func=None):
+        if error_func is None:
+            error_func = default_repd_error_function
+            
         self.dim_reduction_model = dim_reduction_model
         
         self.dnd = None #Distribution non defect

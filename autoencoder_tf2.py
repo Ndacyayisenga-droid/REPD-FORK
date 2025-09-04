@@ -13,11 +13,15 @@ import numpy as np
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 tf.get_logger().setLevel('ERROR')
 
+def default_error_function(x):
+    """Default error function for AutoEncoder"""
+    return tf.norm(x, axis=1)
+
 class AutoEncoder:
     
     def __init__(self, layers, lr=0.01, epoch=200, batch_size=512, transfer_function=tf.nn.relu, error_func=None, print_device=False):
         if error_func is None:
-            error_func = lambda x: tf.norm(x, axis=1)
+            error_func = default_error_function
             
         self.layers = layers
         self.lr = lr
