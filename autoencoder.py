@@ -13,9 +13,16 @@ import math
 #
 from general_utility import canTFUseGPU
 
+def default_autoencoder_error_function(x):
+    """Default error function for AutoEncoder"""
+    return tf.norm(x, axis=1)
+
 class AutoEncoder:
     
-    def __init__(self, layers, lr=0.01, epoch=200, batch_size=512, transfer_function=tf.nn.relu, error_func = lambda x: tf.norm(x,axis=1), print_device=False):
+    def __init__(self, layers, lr=0.01, epoch=200, batch_size=512, transfer_function=tf.nn.relu, error_func=None, print_device=False):
+        if error_func is None:
+            error_func = default_autoencoder_error_function
+            
         device = '/cpu:0'
         if canTFUseGPU():
             if print_device:

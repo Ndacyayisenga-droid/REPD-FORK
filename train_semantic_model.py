@@ -45,7 +45,31 @@ def train_semantic_model(dataset_path):
     
     # Save models
     os.makedirs("trained_model", exist_ok=True)
-    joblib.dump(repd_model, "trained_model/repd_model_DA.pkl")
+    
+    try:
+        # Save the REPD model (this might have serialization issues)
+        joblib.dump(repd_model, "trained_model/repd_model_DA.pkl")
+        print("✅ REPD model saved successfully")
+    except Exception as e:
+        print(f"⚠️ Warning: Could not save REPD model: {e}")
+        # Try saving just the autoencoder weights and REPD parameters separately
+        try:
+            # Save autoencoder weights
+            autoencoder.autoencoder.save_weights("trained_model/autoencoder_weights.h5")
+            
+            # Save REPD parameters that can be serialized
+            repd_params = {
+                'class_weights': getattr(repd_model, 'class_weights', None),
+                'feature_columns': feature_columns,
+                'input_dim': input_dim,
+                'layers': layers
+            }
+            joblib.dump(repd_params, "trained_model/repd_params.pkl")
+            print("✅ Autoencoder weights and REPD parameters saved separately")
+        except Exception as e2:
+            print(f"❌ Error saving model components: {e2}")
+            return False
+    
     joblib.dump(scaler, "trained_model/scaler.pkl")
     
     # Save training results

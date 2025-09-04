@@ -184,9 +184,23 @@ jobs:
           echo "Training semantic model using dataset: $dataset_path"
           
           echo "🤖 Training semantic models..."
-          python3 train_semantic_model.py "$dataset_path"
+          
+          # Try the main training script first
+          if python3 train_semantic_model.py "$dataset_path"; then
+            echo "✅ Main training script succeeded"
+          else
+            echo "⚠️ Main training script failed, trying safe alternative..."
+            # Try the safe alternative training script
+            if python3 train_semantic_model_safe.py "$dataset_path"; then
+              echo "✅ Safe training script succeeded"
+            else
+              echo "❌ Both training scripts failed"
+              exit 1
+            fi
+          fi
+          
           if [ ! -d "trained_model" ]; then
-            echo "ERROR: Failed to generate trained model"
+            echo "ERROR: Failed to generate trained model directory"
             exit 1
           fi
           
@@ -219,6 +233,8 @@ jobs:
           add-paths: |
             data/*.csv
             seantic_trained_models/*.pkl
+            train_semantic_model_safe.py
+            load_semantic_model.py
             .gitignore
             extract_semantic_dataset.sh
 

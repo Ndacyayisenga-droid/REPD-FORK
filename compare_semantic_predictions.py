@@ -10,6 +10,7 @@ import numpy as np
 import joblib
 from REPD_Impl import REPD
 from autoencoder_tf2 import AutoEncoder
+from load_semantic_model import load_semantic_model
 
 # Suppress TensorFlow progress bars
 import tensorflow as tf
@@ -21,18 +22,40 @@ def predict_semantic(csv_file, model_dir):
     # Load dataset
     df = pd.read_csv(csv_file)
     
-    # Load model and scaler with error handling
+    # Load model and scaler with robust error handling
     try:
-        repd_model = joblib.load(f"{model_dir}/repd_model_DA.pkl")
-        scaler = joblib.load(f"{model_dir}/scaler.pkl")
-        training_results = joblib.load(f"{model_dir}/training_results.pkl")
-        print("Successfully loaded existing models", file=sys.stderr)
+        repd_model, scaler = load_semantic_model(model_dir)
+        # Try to load training results
+        try:
+            training_results = joblib.load(f"{model_dir}/training_results.pkl")
+        except:
+            try:
+                training_results = joblib.load(f"{model_dir}/model_config.pkl")
+            except:
+                training_results = {"feature_columns": ["wmc", "rfc", "loc", "max_cc", "avg_cc", "cbo", "ca", "ce", "ic", "cbm", "lcom", "lcom3", "dit", "noc", "mfa", "npm", "dam", "moa", "cam", "amc"]}
+        print("Successfully loaded models using robust loader", file=sys.stderr)
     except Exception as e:
         print(f"Model loading error: {e}", file=sys.stderr)
         print("Training new model with available autoencoder...", file=sys.stderr)
         # Retrain the model using available autoencoder
         from sklearn.preprocessing import StandardScaler
-        dataset_path = "data/openj9_metrics.csv"
+        
+        # Try to find a suitable dataset for training
+        dataset_paths = [
+            "data/openj9_metrics.csv",
+            "data/cargotracker_metrics.csv",
+            "seantic_trained_models/training_results.pkl"
+        ]
+        
+        dataset_path = None
+        for path in dataset_paths:
+            if os.path.exists(path) and path.endswith('.csv'):
+                dataset_path = path
+                break
+        
+        if not dataset_path:
+            raise Exception("No suitable dataset found for training")
+            
         df_train = pd.read_csv(dataset_path)
         feature_columns = ["wmc", "rfc", "loc", "max_cc", "avg_cc", "cbo", "ca", "ce", "ic", "cbm", "lcom", "lcom3", "dit", "noc", "mfa", "npm", "dam", "moa", "cam", "amc"]
         X_train = df_train[feature_columns].fillna(0).values
