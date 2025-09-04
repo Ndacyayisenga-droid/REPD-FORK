@@ -2,3 +2,4 @@ results/
 *.ipynb_checkpoints*
 *__pycache__*
 extract_semantic_dataset.sh
+venv/
