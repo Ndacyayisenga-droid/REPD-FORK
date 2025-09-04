@@ -1,3 +1,8 @@
+# This workflow has been improved to ensure:
+# 1. The same CSV dataset generated is used for training
+# 2. Trained models are committed to the same PR as the dataset
+# 3. Both dataset and models are used consistently for analysis
+
 name: GlitchWitcher - Semantic Bug Prediction Analysis
 
 on:
@@ -139,51 +144,86 @@ jobs:
           fi
           cat .gitignore
 
-      - name: Generate Dataset if Missing
-        if: steps.check-dataset.outputs.dataset_exists == 'false'
+      - name: Generate Dataset and Train Model if Missing
+        if: steps.check-dataset.outputs.dataset_exists == 'false' || steps.check-dataset.outputs.model_exists == 'false'
         run: |
-          echo "Generating dataset for ${{ steps.check-dataset.outputs.repo_name }}..."
+          echo "Generating dataset and training model for ${{ steps.check-dataset.outputs.repo_name }}..."
           echo "Repository URL: ${{ steps.parse-command.outputs.repo_url }}"
           
-          # Make the script executable and run it
-          chmod +x extract_semantic_dataset.sh
-          ./extract_semantic_dataset.sh "${{ steps.parse-command.outputs.repo_url }}"
+          # Generate dataset if missing
+          if [ "${{ steps.check-dataset.outputs.dataset_exists }}" = "false" ]; then
+            echo "Generating dataset..."
+            # Make the script executable and run it
+            chmod +x extract_semantic_dataset.sh
+            ./extract_semantic_dataset.sh "${{ steps.parse-command.outputs.repo_url }}"
+            
+            # Find the generated CSV file
+            generated_csv=$(find . -name "*_metrics.csv" -path "./metrics_output/*" | head -1)
+            if [ ! -f "$generated_csv" ]; then
+              echo "ERROR: Failed to generate CSV file"
+              exit 1
+            fi
+            
+            echo "Generated CSV file: $generated_csv"
+            
+            # Move the generated file to the data directory with the correct name
+            target_file="${{ steps.check-dataset.outputs.dataset_file }}"
+            mkdir -p data
+            mv "$generated_csv" "$target_file"
+            
+            echo "Moved dataset to: $target_file"
+            echo "csv_file_path=$target_file" >> $GITHUB_ENV
+            dataset_path="$target_file"
+          else
+            echo "Using existing dataset: ${{ steps.check-dataset.outputs.dataset_path }}"
+            echo "csv_file_path=${{ steps.check-dataset.outputs.dataset_path }}" >> $GITHUB_ENV
+            dataset_path="${{ steps.check-dataset.outputs.dataset_path }}"
+          fi
           
-          # Find the generated CSV file
-          generated_csv=$(find . -name "*_metrics.csv" -path "./metrics_output/*" | head -1)
-          if [ ! -f "$generated_csv" ]; then
-            echo "ERROR: Failed to generate CSV file"
+          # Train model using the dataset (generated or existing)
+          echo "Training semantic model using dataset: $dataset_path"
+          
+          echo "🤖 Training semantic models..."
+          python3 train_semantic_model.py "$dataset_path"
+          if [ ! -d "trained_model" ]; then
+            echo "ERROR: Failed to generate trained model"
             exit 1
           fi
           
-          echo "Generated CSV file: $generated_csv"
+          # Copy trained models to seantic_trained_models directory for consistency
+          mkdir -p seantic_trained_models
+          if [ -f "trained_model/repd_model_DA.pkl" ]; then
+            cp trained_model/repd_model_DA.pkl seantic_trained_models/
+          fi
+          if [ -f "trained_model/scaler.pkl" ]; then
+            cp trained_model/scaler.pkl seantic_trained_models/
+          fi
+          if [ -f "trained_model/training_results.pkl" ]; then
+            cp trained_model/training_results.pkl seantic_trained_models/
+          fi
           
-          # Move the generated file to the data directory with the correct name
-          target_file="${{ steps.check-dataset.outputs.dataset_file }}"
-          mkdir -p data
-          mv "$generated_csv" "$target_file"
-          
-          echo "Moved dataset to: $target_file"
-          echo "csv_file_path=$target_file" >> $GITHUB_ENV
+          echo "Model training completed successfully"
 
-      - name: Create Pull Request for Dataset
-        if: steps.check-dataset.outputs.dataset_exists == 'false'
+      - name: Create Pull Request for Dataset and Models
+        id: create-pr-dataset-models
+        if: steps.check-dataset.outputs.dataset_exists == 'false' || steps.check-dataset.outputs.model_exists == 'false'
         uses: peter-evans/create-pull-request@v6
         with:
-          token: ${{ secrets.PERSONAL_GITHUB_TOKEN }}
-          branch: add-dataset-${{ steps.check-dataset.outputs.repo_name }}
-          commit-message: Add semantic dataset for ${{ steps.check-dataset.outputs.repo_name }}
-          title: Add semantic dataset for ${{ steps.check-dataset.outputs.repo_name }}
-          body: This PR adds the semantic dataset generated for ${{ steps.check-dataset.outputs.repo_name }} repository analysis.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: add-dataset-models-${{ steps.check-dataset.outputs.repo_name }}
+          commit-message: Add semantic dataset and trained models for ${{ steps.check-dataset.outputs.repo_name }}
+          title: Add semantic dataset and trained models for ${{ steps.check-dataset.outputs.repo_name }}
+          body: This PR adds the semantic dataset and trained models generated for ${{ steps.check-dataset.outputs.repo_name }} repository analysis.
           base: master
           delete-branch: true
           add-paths: |
             data/*.csv
+            seantic_trained_models/*.pkl
             .gitignore
             extract_semantic_dataset.sh
 
       - name: Notify on PR Creation Failure
-        if: steps.check-dataset.outputs.dataset_exists == 'false' && steps.create-pr.outputs.pull-request-number == ''
+        if: steps.check-dataset.outputs.dataset_exists == 'false' && steps.create-pr-dataset-models.outputs.pull-request-number == ''
         uses: actions/github-script@v6
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -192,7 +232,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `⚠️ Dataset generated for ${{ steps.check-dataset.outputs.repo_name }} and pushed to branch \`add-dataset-${{ steps.check-dataset.outputs.repo_name }}\`, but automatic PR creation failed. Please create a PR manually at: https://github.com/${{ steps.parse-command.outputs.repo_owner }}/${{ steps.check-dataset.outputs.repo_name }}/compare/master...add-dataset-${{ steps.check-dataset.outputs.repo_name }}`
+              body: `⚠️ Dataset and models generated for ${{ steps.check-dataset.outputs.repo_name }} and pushed to branch \`add-dataset-models-${{ steps.check-dataset.outputs.repo_name }}\`, but automatic PR creation failed. Please create a PR manually at: https://github.com/${{ steps.parse-command.outputs.repo_owner }}/${{ steps.check-dataset.outputs.repo_name }}/compare/master...add-dataset-models-${{ steps.check-dataset.outputs.repo_name }}`
             });
 
       - name: Use Local Dataset
@@ -201,37 +241,23 @@ jobs:
           if [ "${{ steps.check-dataset.outputs.dataset_exists }}" = "true" ]; then
             echo "✅ Using existing local dataset: ${{ steps.check-dataset.outputs.dataset_path }}"
             echo "csv_file_path=${{ steps.check-dataset.outputs.dataset_path }}" >> $GITHUB_ENV
-          elif [ -n "${{ env.csv_file_path }}" ]; then
-            echo "✅ Using newly generated dataset: ${{ env.csv_file_path }}"
-            echo "csv_file_path=${{ env.csv_file_path }}" >> $GITHUB_ENV
           else
-            echo "⚠️ No dataset available, creating minimal sample dataset..."
-            # Create minimal sample dataset as fallback
-            mkdir -p data
-            fallback_file="${{ steps.check-dataset.outputs.dataset_file }}"
-            echo "project_name,version,class_name,wmc,rfc,loc,max_cc,avg_cc,cbo,ca,ce,ic,cbm,lcom,lcom3,dit,noc,mfa,npm,dam,moa,cam,amc,bug" > "$fallback_file"
-            echo "${{ steps.check-dataset.outputs.repo_name }},unknown,com.example.TestClass,5,10,68,6,2.8,5,0,0,0,1,10,1.0,0,0,0.0,4,0.6666666666666666,2,0.5,13.6,2" >> "$fallback_file"
-            echo "Created fallback dataset: $fallback_file"
-            echo "csv_file_path=$fallback_file" >> $GITHUB_ENV
+            # Dataset was generated in previous step, use the same path
+            dataset_file="${{ steps.check-dataset.outputs.dataset_file }}"
+            if [ -f "$dataset_file" ]; then
+              echo "✅ Using newly generated dataset: $dataset_file"
+              echo "csv_file_path=$dataset_file" >> $GITHUB_ENV
+            else
+              echo "⚠️ No dataset available, creating minimal sample dataset..."
+              # Create minimal sample dataset as fallback
+              mkdir -p data
+              fallback_file="${{ steps.check-dataset.outputs.dataset_file }}"
+              echo "project_name,version,class_name,wmc,rfc,loc,max_cc,avg_cc,cbo,ca,ce,ic,cbm,lcom,lcom3,dit,noc,mfa,npm,dam,moa,cam,amc,bug" > "$fallback_file"
+              echo "${{ steps.check-dataset.outputs.repo_name }},unknown,com.example.TestClass,5,10,68,6,2.8,5,0,0,0,1,10,1.0,0,0,0.0,4,0.6666666666666666,2,0.5,13.6,2" >> "$fallback_file"
+              echo "Created fallback dataset: $fallback_file"
+              echo "csv_file_path=$fallback_file" >> $GITHUB_ENV
+            fi
           fi
-
-      - name: Train Model if Missing
-        if: steps.check-dataset.outputs.model_exists == 'false'
-        run: |
-          echo "Training semantic model using local dataset..."
-          # Use the dataset path from the previous step
-          dataset_path="${{ env.csv_file_path }}"
-          echo "Using dataset: $dataset_path"
-          
-          # Use the existing train_semantic_model.py file
-          
-          echo "🤖 Training semantic models..."
-          python3 train_semantic_model.py "$dataset_path"
-          if [ ! -d "trained_model" ]; then
-            echo "ERROR: Failed to generate trained model"
-            exit 1
-          fi
-          echo "Model training completed successfully"
 
       - name: Prepare Local Models
         run: |
@@ -239,7 +265,7 @@ jobs:
           # Create trained_model directory if it doesn't exist
           mkdir -p trained_model
           
-          # Check if local models exist
+          # Check if local models exist in seantic_trained_models (now should exist after generation/training)
           models_found="false"
           if [ -f "seantic_trained_models/repd_model_DA.pkl" ]; then
             echo "Copying local REPD model..."
@@ -260,7 +286,8 @@ jobs:
           fi
           
           if [ "$models_found" = "false" ]; then
-            echo "No local models found, will train new models during analysis..."
+            echo "ERROR: No models found after training/generation step"
+            exit 1
           else
             echo "Local models prepared successfully"
           fi
@@ -368,42 +395,25 @@ jobs:
             exit 0
           fi
           
-          # Prepare trained model: Use local models
+          # Prepare trained model: Use local models that should now be available
           have_model="false"
           if [ -d "seantic_trained_models" ] && [ -f "seantic_trained_models/repd_model_DA.pkl" ]; then
             echo "Using local semantic model artifacts..."
             have_model="true"
+          elif [ -d "trained_model" ] && [ -f "trained_model/repd_model_DA.pkl" ]; then
+            echo "Found models in trained_model directory"
+            have_model="true"
           else
-            echo "Local models not found in seantic_trained_models, checking for trained_models..."
-            if [ -d "trained_models" ] && [ -f "trained_models/repd_model_DA.pkl" ]; then
-              echo "Found models in trained_models directory"
-              have_model="true"
-            else
-              echo "No trained models found, attempting to train new model..."
-              # Train a new model using the available dataset
-              dataset_path="${{ env.csv_file_path }}"
-              if [ -f "$dataset_path" ]; then
-                echo "Training model with dataset: $dataset_path"
-                python3 train_repd_model.py
-                if [ -d "trained_models" ] && [ -f "trained_models/repd_model_DA.pkl" ]; then
-                  echo "Model training completed successfully"
-                  have_model="true"
-                else
-                  echo "Model training failed"
-                fi
-              else
-                echo "No dataset available for training"
-              fi
-            fi
+            echo "ERROR: No trained models found after preparation step"
           fi
-          
+
           if [ "$have_model" != "true" ]; then
             echo "comment=Unable to train or find semantic model for predictions." >> $GITHUB_OUTPUT
             exit 0
           fi
-          
+
           # Use the existing compare_semantic_predictions.py file
-          
+
           echo "Running semantic comparison predictions..."
           echo "🔍 Analyzing semantic features and training models..."
           if [ -f "metrics_output_base/summary_metrics.csv" ] && [ -f "metrics_output_head/summary_metrics.csv" ]; then
@@ -451,11 +461,11 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const commentBody = `${process.env.COMMENT_BODY}
-            
+
             *Analysis performed by GlitchWitcher Bot*`;
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
               body: commentBody
-            }); 
+            });
